@@ -16,12 +16,32 @@ const io = new Server(server, {
 
 const game = new RiskGame();
 let pendingBattle = null;
+const INACTIVITY_LIMIT = 300000;
+let gameTimeout = null;
 
 const emitGameUpdateToAll = () => {
   io.emit('game_update', game.getState());
 };
 
 const isBattlePending = () => pendingBattle !== null;
+
+const clearInactivityTimer = () => {
+  if (gameTimeout) {
+    clearTimeout(gameTimeout);
+    gameTimeout = null;
+  }
+};
+
+const resetInactivityTimer = () => {
+  clearInactivityTimer();
+  gameTimeout = setTimeout(() => {
+    pendingBattle = null;
+    game.resetGame();
+    io.emit('game_reset', 'Partida finalizada por inactividad');
+    emitGameUpdateToAll();
+    clearInactivityTimer();
+  }, INACTIVITY_LIMIT);
+};
 
 io.on('connection', (socket) => {
   console.log('New player connected');
@@ -48,13 +68,18 @@ io.on('connection', (socket) => {
       return;
     }
 
-    game.startGame();
+    const started = game.startGame();
+    if (!started) return;
+    resetInactivityTimer();
     emitGameUpdateToAll();
   });
 
   socket.on('deploy', ({ territoryId, count }) => {
     if (isBattlePending()) return;
-    game.deploy(socket.id, territoryId, count);
+    const deployed = game.deploy(socket.id, territoryId, count);
+    if (deployed) {
+      resetInactivityTimer();
+    }
     emitGameUpdateToAll();
   });
 
@@ -67,6 +92,7 @@ io.on('connection', (socket) => {
     if (!result) {
       return;
     }
+    resetInactivityTimer();
 
     pendingBattle = {
       battleId: game.lastAttack ? game.lastAttack.id : null,
@@ -96,13 +122,19 @@ io.on('connection', (socket) => {
 
   socket.on('fortify', ({ fromId, toId, count }) => {
     if (isBattlePending()) return;
-    game.fortify(socket.id, fromId, toId, count);
+    const fortified = game.fortify(socket.id, fromId, toId, count);
+    if (fortified) {
+      resetInactivityTimer();
+    }
     emitGameUpdateToAll();
   });
 
   socket.on('end_phase', () => {
     if (isBattlePending()) return;
-    game.nextPhase();
+    const advanced = game.nextPhase();
+    if (advanced) {
+      resetInactivityTimer();
+    }
     emitGameUpdateToAll();
   });
 
@@ -111,6 +143,7 @@ io.on('connection', (socket) => {
     if (socket.id !== pendingBattle.attackerId) return;
     if (battleId && pendingBattle.battleId && battleId !== pendingBattle.battleId) return;
 
+    resetInactivityTimer();
     io.emit('battle_anim', {
       battleId: pendingBattle.battleId,
       attackerId: pendingBattle.attackerId,
@@ -137,6 +170,9 @@ io.on('connection', (socket) => {
     }
     const removed = game.removePlayer(socket.id);
     if (removed) {
+      if (game.players.length < 2 || game.phase === 'LOBBY') {
+        clearInactivityTimer();
+      }
       emitGameUpdateToAll();
       return;
     }

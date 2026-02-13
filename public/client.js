@@ -1120,6 +1120,39 @@ socket.on('error_message', (message) => {
   });
 });
 
+socket.on('game_reset', (message) => {
+  if (message) {
+    window.alert(message);
+  }
+  uiLocked = false;
+  battlePending = false;
+  battleAnimationInProgress = false;
+  battleContext = null;
+  rollRequested = false;
+  selectedTerritoryId = null;
+  selectedSourceId = null;
+  selectedTargetId = null;
+  pendingFloatingEvents = [];
+  SoundManager.stopDiceRoll();
+  if (battleTimeoutId) {
+    window.clearTimeout(battleTimeoutId);
+    battleTimeoutId = null;
+  }
+  if (revealTimeoutId) {
+    window.clearTimeout(revealTimeoutId);
+    revealTimeoutId = null;
+  }
+  if (battleOverlayEl) {
+    battleOverlayEl.classList.remove('active');
+  }
+  if (battleDiceContainerEl) {
+    battleDiceContainerEl.innerHTML = '';
+  }
+  if (battleOverlayStateEl) {
+    battleOverlayStateEl.innerHTML = '';
+  }
+});
+
 socket.on('battle_cancelled', () => {
   battlePending = false;
   battleAnimationInProgress = false;

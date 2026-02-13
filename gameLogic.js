@@ -406,6 +406,26 @@ class RiskGame {
     return true;
   }
 
+  resetGame() {
+    this.phase = 'LOBBY';
+    this.isFirstRound = true;
+    this.currentPlayerIndex = 0;
+    this.lastAttack = null;
+    this.lastAttackId = 0;
+
+    this.map = (mapData.territories || []).map((territory) => ({
+      ...JSON.parse(JSON.stringify(territory)),
+      ownerId: null,
+      troops: 0,
+    }));
+
+    this.players = this.players.map((player) => ({
+      ...player,
+      pool: 0,
+      troops: 0,
+    }));
+  }
+
   getState() {
     const playerSnapshots = this.players.map((player) => {
       const troops = this.map.reduce(
