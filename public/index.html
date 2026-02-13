@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Risk Game</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="header">
+        <h1>AI Risk Game</h1>
+      </header>
+
+      <main class="main">
+        <section class="board">
+          <canvas id="gameMap" width="1000" height="600">Your browser does not support canvas.</canvas>
+        </section>
+
+        <aside id="sidebar" class="sidebar">
+          <section class="hud-section phase-section">
+            <div class="section-title">Mission Phase</div>
+            <div id="currentPlayer" class="current-player-label">Waiting for game...</div>
+            <div id="currentPhase" class="phase-badge">LOBBY</div>
+          </section>
+
+          <section class="hud-section players-section">
+            <div class="section-title">Field Commanders</div>
+            <div id="playerList" class="player-cards"></div>
+          </section>
+
+          <section class="hud-section actions-section">
+            <div class="section-title">Command Actions</div>
+            <div id="dynamic-actions-container"></div>
+          </section>
+
+          <section class="hud-section log-section">
+            <div class="section-title">Battle Feed</div>
+            <textarea id="gameLog" rows="8" readonly></textarea>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <div id="battle-overlay" aria-hidden="true">
+      <div class="battle-panel">
+        <h2 id="battle-title">Battle</h2>
+        <div id="battle-overlay-state"></div>
+        <div id="battle-dice-container"></div>
+      </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="client.js"></script>
+  </body>
+</html>
