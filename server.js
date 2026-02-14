@@ -17,13 +17,105 @@ const io = new Server(server, {
 const game = new RiskGame();
 let pendingBattle = null;
 const INACTIVITY_LIMIT = 300000;
+const TURN_LIMIT = 60000;
 let gameTimeout = null;
+let turnTimeout = null;
+let turnTimerEndsAt = null;
+let lastTurnTimerKey = null;
+let isMassKicking = false;
 
 const emitGameUpdateToAll = () => {
-  io.emit('game_update', game.getState());
+  pruneInactivePlayers();
+  io.emit('game_update', {
+    ...game.getState(),
+    turnTimerEndsAt,
+    turnTimerDurationMs: TURN_LIMIT,
+    serverNowMs: Date.now(),
+  });
 };
 
 const isBattlePending = () => pendingBattle !== null;
+
+const pruneInactivePlayers = () => {
+  const activeSockets = io.sockets.sockets;
+  const staleIds = game.players
+    .map((player) => player.id)
+    .filter((playerId) => !activeSockets.has(playerId));
+
+  if (!staleIds.length) return false;
+  staleIds.forEach((playerId) => {
+    game.removePlayer(playerId);
+  });
+
+  if (game.players.length === 0 && game.phase !== 'LOBBY') {
+    pendingBattle = null;
+    game.resetGame();
+    clearInactivityTimer();
+    return true;
+  }
+
+  if (game.phase !== 'LOBBY' && game.players.length === 1 && !game.winnerId) {
+    const winner = game.players[0];
+    game.winnerId = winner.id;
+    io.emit('game_over', {
+      winnerId: winner.id,
+      winnerName: winner.displayName,
+      reason: 'last_player_standing',
+    });
+    clearInactivityTimer();
+  }
+  return true;
+};
+const shouldRunTurnTimer = () =>
+  !isBattlePending() &&
+  !game.winnerId &&
+  game.players.length >= 2 &&
+  (game.phase === 'TURN_ATTACK' || game.phase === 'TURN_FORTIFY');
+
+const clearTurnTimer = () => {
+  if (turnTimeout) {
+    clearTimeout(turnTimeout);
+    turnTimeout = null;
+  }
+};
+
+const getTurnTimerKey = () => `${game.phase}:${game.currentPlayerIndex}`;
+
+const refreshTurnTimer = ({ force = false } = {}) => {
+  pruneInactivePlayers();
+  if (!shouldRunTurnTimer()) {
+    clearTurnTimer();
+    turnTimerEndsAt = null;
+    lastTurnTimerKey = null;
+    return;
+  }
+
+  const key = getTurnTimerKey();
+  if (!force && turnTimeout && lastTurnTimerKey === key) {
+    return;
+  }
+
+  clearTurnTimer();
+  lastTurnTimerKey = key;
+  turnTimerEndsAt = Date.now() + TURN_LIMIT;
+  turnTimeout = setTimeout(() => {
+    turnTimeout = null;
+    turnTimerEndsAt = null;
+
+    if (!shouldRunTurnTimer()) {
+      refreshTurnTimer({ force: true });
+      emitGameUpdateToAll();
+      return;
+    }
+
+    const timedOutPlayerId = game.getCurrentPlayer() ? game.getCurrentPlayer().id : null;
+    game.nextPhase();
+    io.emit('turn_skipped', { playerId: timedOutPlayerId });
+    refreshTurnTimer({ force: true });
+    emitGameUpdateToAll();
+    resetInactivityTimer();
+  }, TURN_LIMIT);
+};
 
 const clearInactivityTimer = () => {
   if (gameTimeout) {
@@ -35,20 +127,78 @@ const clearInactivityTimer = () => {
 const resetInactivityTimer = () => {
   clearInactivityTimer();
   gameTimeout = setTimeout(() => {
+    isMassKicking = true;
     pendingBattle = null;
+    io.emit('server_message', 'Kicked for inactivity');
     game.resetGame();
-    io.emit('game_reset', 'Partida finalizada por inactividad');
+    refreshTurnTimer({ force: true });
+    io.disconnectSockets(true);
+    game.players = [];
     emitGameUpdateToAll();
     clearInactivityTimer();
+    isMassKicking = false;
   }, INACTIVITY_LIMIT);
 };
 
 io.on('connection', (socket) => {
   console.log('New player connected');
 
-  socket.on('join_game', () => {
-    const success = game.addPlayer(socket.id);
+  const handlePlayerExit = () => {
+    if (socket.data.cleanedUp) return;
+    socket.data.cleanedUp = true;
+
+    if (isMassKicking) {
+      game.removePlayer(socket.id);
+      return;
+    }
+
+    let clearedPendingBattle = false;
+    if (
+      pendingBattle &&
+      (socket.id === pendingBattle.attackerId || socket.id === pendingBattle.defenderId)
+    ) {
+      pendingBattle = null;
+      clearedPendingBattle = true;
+      io.emit('battle_cancelled');
+    }
+
+    const removed = game.removePlayer(socket.id);
+
+    if (!removed) {
+      if (clearedPendingBattle) {
+        refreshTurnTimer({ force: true });
+        emitGameUpdateToAll();
+      }
+      return;
+    }
+
+    if (game.players.length === 0 || game.phase === 'LOBBY') {
+      clearInactivityTimer();
+      if (game.players.length === 0 && game.phase !== 'LOBBY') {
+        pendingBattle = null;
+        game.resetGame();
+      }
+    } else if (game.phase !== 'LOBBY' && game.players.length === 1 && !game.winnerId) {
+      const winner = game.players[0];
+      game.winnerId = winner.id;
+      io.emit('game_over', {
+        winnerId: winner.id,
+        winnerName: winner.displayName,
+        reason: 'last_player_standing',
+      });
+      clearInactivityTimer();
+    } else {
+      resetInactivityTimer();
+    }
+
+    refreshTurnTimer({ force: true });
+    emitGameUpdateToAll();
+  };
+
+  socket.on('join_game', ({ displayName } = {}) => {
+    const success = game.addPlayer(socket.id, displayName);
     if (success) {
+      refreshTurnTimer({ force: true });
       emitGameUpdateToAll();
     } else {
       socket.emit('error_message', 'Game already in progress');
@@ -58,8 +208,21 @@ io.on('connection', (socket) => {
   socket.on('leave_lobby', () => {
     const removed = game.removePlayer(socket.id);
     if (removed) {
+      refreshTurnTimer({ force: true });
       emitGameUpdateToAll();
     }
+  });
+
+  socket.on('leave_game', () => {
+    handlePlayerExit();
+    socket.disconnect(true);
+  });
+
+  socket.on('toggle_ready', () => {
+    const changed = game.togglePlayerReady(socket.id);
+    if (!changed) return;
+    refreshTurnTimer({ force: true });
+    emitGameUpdateToAll();
   });
 
   socket.on('start_game', () => {
@@ -67,10 +230,15 @@ io.on('connection', (socket) => {
       socket.emit('error_message', 'Only the host can start the game');
       return;
     }
+    if (!game.canStartGame()) {
+      socket.emit('error_message', 'All players must be ready (minimum 2 players)');
+      return;
+    }
 
     const started = game.startGame();
     if (!started) return;
     resetInactivityTimer();
+    refreshTurnTimer({ force: true });
     emitGameUpdateToAll();
   });
 
@@ -80,6 +248,7 @@ io.on('connection', (socket) => {
     if (deployed) {
       resetInactivityTimer();
     }
+    refreshTurnTimer();
     emitGameUpdateToAll();
   });
 
@@ -105,7 +274,10 @@ io.on('connection', (socket) => {
       attackerLosses: result.attackerLosses,
       defenderLosses: result.defenderLosses,
       conquered: result.conquered,
+      winnerId: result.winnerId || null,
+      winnerName: result.winnerId ? game.getPlayer(result.winnerId)?.displayName || null : null,
     };
+    refreshTurnTimer();
 
     const readyPayload = {
       battleId: pendingBattle.battleId,
@@ -126,6 +298,7 @@ io.on('connection', (socket) => {
     if (fortified) {
       resetInactivityTimer();
     }
+    refreshTurnTimer();
     emitGameUpdateToAll();
   });
 
@@ -135,6 +308,7 @@ io.on('connection', (socket) => {
     if (advanced) {
       resetInactivityTimer();
     }
+    refreshTurnTimer();
     emitGameUpdateToAll();
   });
 
@@ -155,30 +329,36 @@ io.on('connection', (socket) => {
       attackerLosses: pendingBattle.attackerLosses,
       defenderLosses: pendingBattle.defenderLosses,
       conquered: pendingBattle.conquered,
+      winnerId: pendingBattle.winnerId,
+      winnerName: pendingBattle.winnerName,
     });
 
+    const winnerPayload = pendingBattle.winnerId
+      ? {
+          winnerId: pendingBattle.winnerId,
+          winnerName: pendingBattle.winnerName,
+        }
+      : null;
+
     pendingBattle = null;
+    refreshTurnTimer({ force: true });
+    emitGameUpdateToAll();
+    if (winnerPayload) {
+      io.emit('game_over', winnerPayload);
+    }
+  });
+
+  socket.on('return_to_lobby', () => {
+    pendingBattle = null;
+    clearInactivityTimer();
+    game.resetGame();
+    io.emit('game_reset', 'Partida reiniciada al lobby');
+    refreshTurnTimer({ force: true });
     emitGameUpdateToAll();
   });
 
   socket.on('disconnect', () => {
-    let clearedPendingBattle = false;
-    if (pendingBattle && socket.id === pendingBattle.attackerId) {
-      pendingBattle = null;
-      clearedPendingBattle = true;
-      io.emit('battle_cancelled');
-    }
-    const removed = game.removePlayer(socket.id);
-    if (removed) {
-      if (game.players.length < 2 || game.phase === 'LOBBY') {
-        clearInactivityTimer();
-      }
-      emitGameUpdateToAll();
-      return;
-    }
-    if (clearedPendingBattle) {
-      emitGameUpdateToAll();
-    }
+    handlePlayerExit();
   });
 });
 

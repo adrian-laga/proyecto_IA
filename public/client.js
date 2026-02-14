@@ -1,4 +1,4 @@
-const socket = io();
+const socket = io({ reconnection: false });
 
 const svgNamespace = 'http://www.w3.org/2000/svg';
 const boardEl = document.querySelector('.board');
@@ -35,9 +35,28 @@ const battleOverlayEl = document.getElementById('battle-overlay');
 const battleTitleEl = document.getElementById('battle-title');
 const battleOverlayStateEl = document.getElementById('battle-overlay-state');
 const battleDiceContainerEl = document.getElementById('battle-dice-container');
+const actionModalBackdropEl = document.getElementById('action-modal-backdrop');
+const actionModalPanelEl = document.getElementById('action-modal-panel');
+const actionModalCloseEl = document.getElementById('action-modal-close');
+const actionModalTitleEl = document.getElementById('action-modal-title');
+const actionModalBodyEl = document.getElementById('action-modal-body');
+const actionModalFooterEl = document.getElementById('action-modal-footer');
+const welcomeOverlayEl = document.getElementById('welcome-overlay');
+const welcomeFormEl = document.getElementById('welcome-form');
+const nicknameInputEl = document.getElementById('nickname-input');
+const toastContainerEl = document.getElementById('toast-container');
+const victoryOverlayEl = document.getElementById('victory-overlay');
+const victoryTitleEl = document.getElementById('victory-title');
+const victoryWinnerEl = document.getElementById('victory-winner');
+const victoryConfettiEl = document.getElementById('victory-confetti');
+const returnLobbyBtnEl = document.getElementById('return-lobby-btn');
+const turnTimerBarEl = document.getElementById('turn-timer-bar');
+const turnTimerFillEl = document.getElementById('turn-timer-fill');
+const turnTimerLabelEl = document.getElementById('turn-timer-label');
 
 const PLAYER_COLORS = ['#3498db', '#e74c3c', '#2ecc71', '#f1c40f'];
 const UNOWNED_COLOR = '#2b2f36';
+const NEUTRAL_COLOR = '#666666';
 
 const territoryGraphics = {
   na_alaska: { path: 'M 339.42,280.02 C 338.58,278.58 338.75,280.17 338.25,277.71 C 337.75,275.25 336.75,275.54 335.91,274.82 C 335.08,274.10 333.91,273.95 334.41,272.65 C 334.91,271.35 335.25,271.35 334.75,270.05 C 334.25,268.75 332.08,268.03 331.41,266.73 C 330.75,265.43 330.75,266.44 330.75,264.42 C 330.75,262.39 331.41,262.10 329.41,261.53 C 327.41,260.95 326.08,262.39 325.08,260.52 C 324.08,258.64 324.24,259.65 322.24,259.36 C 320.24,259.07 319.41,259.21 318.74,258.06 C 318.08,256.90 317.74,255.89 316.41,255.89 C 315.08,255.89 313.41,255.46 313.08,254.74 C 312.74,254.01 310.91,251.99 309.74,251.99 C 308.57,251.99 308.91,252.71 307.07,253.44 C 305.24,254.16 310.41,254.88 306.41,255.75 C 302.41,256.61 300.57,256.90 299.74,256.32 C 298.91,255.75 295.90,257.63 296.40,255.46 C 296.90,253.29 297.07,253.58 297.91,253.00 C 298.74,252.42 301.07,252.28 300.07,251.70 C 299.07,251.12 299.57,250.11 296.07,250.83 C 292.57,251.56 291.57,251.85 290.40,252.57 C 289.24,253.29 289.24,254.74 288.74,255.60 C 288.24,256.47 290.24,256.18 286.40,257.63 C 282.57,259.07 284.57,256.90 280.57,259.94 C 276.57,262.97 277.90,263.26 274.90,263.69 C 271.90,264.13 273.73,263.69 271.40,265.86 C 269.06,268.03 269.40,269.04 267.06,269.04 C 264.73,269.04 265.56,272.65 263.40,270.20 C 261.23,267.74 259.73,268.75 261.40,267.60 C 263.06,266.44 263.40,266.73 264.73,266.44 C 266.06,266.15 265.40,266.87 266.90,264.99 C 268.40,263.12 268.06,262.39 270.40,262.25 C 272.73,262.10 272.40,263.98 273.40,261.24 C 274.40,258.49 273.40,258.64 275.23,257.19 C 277.07,255.75 279.07,254.30 276.73,254.16 C 274.40,254.01 274.23,253.58 272.07,254.45 C 269.90,255.31 269.73,255.75 267.73,255.46 C 265.73,255.17 265.23,255.02 265.23,254.30 C 265.23,253.58 264.40,251.27 264.40,251.27 C 264.40,251.27 266.06,250.55 263.23,249.97 C 260.40,249.39 260.23,251.27 260.40,249.39 C 260.56,247.51 261.90,247.80 260.73,246.93 C 259.56,246.07 259.23,245.49 257.73,246.07 C 256.23,246.64 254.56,248.09 255.56,245.92 C 256.56,243.75 258.56,242.89 259.23,242.02 C 259.90,241.15 260.90,238.70 261.23,237.40 C 261.56,236.10 259.90,236.82 261.90,235.52 C 263.90,234.22 263.06,233.93 265.56,234.07 C 268.06,234.22 267.40,234.07 269.06,234.80 C 270.73,235.52 271.23,235.95 272.23,235.52 C 273.23,235.08 274.23,234.07 274.90,233.35 C 275.57,232.63 276.40,232.20 276.57,231.33 C 276.73,230.46 277.57,229.59 275.73,230.17 C 273.90,230.75 274.57,230.75 272.07,231.18 C 269.57,231.62 269.90,233.21 268.90,231.33 C 267.90,229.45 267.73,228.58 267.73,228.58 C 267.73,228.58 266.73,228.58 266.90,226.56 C 267.06,224.54 265.40,221.21 269.90,220.20 C 274.40,219.19 277.23,220.06 277.40,220.64 C 277.57,221.21 276.07,221.79 278.07,221.94 C 280.07,222.08 280.23,222.51 281.40,221.07 C 282.57,219.62 283.90,219.77 282.57,219.19 C 281.23,218.61 280.07,218.76 279.40,217.60 C 278.73,216.45 279.40,216.16 278.73,214.57 C 278.07,212.98 278.07,212.69 277.07,211.53 C 276.07,210.38 273.40,208.64 276.73,207.92 C 280.07,207.20 283.57,206.48 282.91,206.89 C 282.91,206.89 286.68,203.21 289.04,203.62 C 291.40,204.03 294.23,203.62 296.58,201.98 C 298.94,200.35 302.71,201.16 302.71,201.16 L 305.54,203.21 C 305.54,203.21 309.32,206.48 311.67,205.25 C 314.03,204.03 314.03,207.29 318.27,207.70 C 322.52,208.11 324.40,208.93 328.65,210.16 C 328.65,210.16 329.83,209.75 329.59,211.18 C 329.36,212.61 327.00,246.53 327.71,246.94 L 327.91,247.22 L 337.91,248.23 C 337.91,248.23 338.08,248.38 338.74,250.11 C 339.41,251.84 339.91,253.00 341.41,255.31 C 342.91,257.62 341.58,264.56 341.58,264.56 L 344.25,267.74 C 344.25,267.74 346.41,268.60 347.25,268.75 C 348.08,268.89 347.75,272.51 347.58,273.95 C 347.41,275.40 345.41,274.67 344.25,274.96 C 343.08,275.25 342.74,277.71 342.58,279.15 C 342.41,280.60 339.42,280.02 339.42,280.02 z', textX: 301.3, textY: 240.5 },
@@ -103,6 +122,16 @@ let actionCountValue = 1;
 let hasReceivedInitialState = false;
 let floatingLayerEl = null;
 let pendingFloatingEvents = [];
+let hasJoinedGame = false;
+let pendingNickname = '';
+let queuedGameOverPayload = null;
+let victoryConfettiRaf = null;
+let victoryResizeHandler = null;
+let turnTimerEndMs = null;
+let turnTimerDurationMs = 0;
+let intentionalLeave = false;
+let kickedByInactivity = false;
+let neutralOwnerId = 'neutral';
 
 const SoundManager = {
   ctx: null,
@@ -243,6 +272,180 @@ const SoundManager = {
   },
 };
 
+const showToast = (message, type = 'info') => {
+  if (!toastContainerEl || !message) return;
+  const toast = document.createElement('div');
+  const safeType = ['error', 'success', 'info'].includes(type) ? type : 'info';
+  toast.className = `toast ${safeType}`;
+  toast.textContent = String(message);
+  toastContainerEl.appendChild(toast);
+
+  window.setTimeout(() => {
+    toast.classList.add('toast-out');
+    window.setTimeout(() => {
+      if (toast.parentNode) {
+        toast.parentNode.removeChild(toast);
+      }
+    }, 280);
+  }, 3000);
+};
+
+const sanitizeNickname = (name) => {
+  const safe = String(name || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 12);
+  return safe;
+};
+
+const openWelcomeOverlay = () => {
+  if (!welcomeOverlayEl) return;
+  welcomeOverlayEl.classList.add('active');
+  welcomeOverlayEl.setAttribute('aria-hidden', 'false');
+  if (nicknameInputEl) {
+    nicknameInputEl.value = pendingNickname;
+    window.setTimeout(() => nicknameInputEl.focus(), 0);
+  }
+};
+
+const closeWelcomeOverlay = () => {
+  if (!welcomeOverlayEl) return;
+  welcomeOverlayEl.classList.remove('active');
+  welcomeOverlayEl.setAttribute('aria-hidden', 'true');
+};
+
+const stopVictoryConfetti = () => {
+  if (victoryConfettiRaf) {
+    window.cancelAnimationFrame(victoryConfettiRaf);
+    victoryConfettiRaf = null;
+  }
+  if (victoryResizeHandler) {
+    window.removeEventListener('resize', victoryResizeHandler);
+    victoryResizeHandler = null;
+  }
+  if (victoryConfettiEl) {
+    const ctx = victoryConfettiEl.getContext('2d');
+    if (ctx) {
+      ctx.clearRect(0, 0, victoryConfettiEl.width, victoryConfettiEl.height);
+    }
+  }
+};
+
+const startVictoryConfetti = () => {
+  if (!victoryConfettiEl) return;
+  stopVictoryConfetti();
+
+  const canvas = victoryConfettiEl;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const resize = () => {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  };
+  victoryResizeHandler = resize;
+  resize();
+
+  const colors = ['#22d3ee', '#34d399', '#f59e0b', '#f43f5e', '#a78bfa', '#f8fafc'];
+  const pieces = Array.from({ length: 130 }, () => ({
+    x: Math.random() * canvas.width,
+    y: Math.random() * -canvas.height,
+    size: 5 + Math.random() * 8,
+    color: colors[Math.floor(Math.random() * colors.length)],
+    speedY: 1.5 + Math.random() * 3.5,
+    speedX: -1 + Math.random() * 2,
+    tilt: Math.random() * Math.PI * 2,
+  }));
+
+  const render = () => {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    pieces.forEach((piece) => {
+      piece.y += piece.speedY;
+      piece.x += piece.speedX;
+      piece.tilt += 0.12;
+
+      if (piece.y > canvas.height + 12) {
+        piece.y = -12;
+        piece.x = Math.random() * canvas.width;
+      }
+
+      ctx.save();
+      ctx.translate(piece.x, piece.y);
+      ctx.rotate(Math.sin(piece.tilt));
+      ctx.fillStyle = piece.color;
+      ctx.fillRect(-piece.size / 2, -piece.size / 2, piece.size, piece.size * 0.65);
+      ctx.restore();
+    });
+    victoryConfettiRaf = window.requestAnimationFrame(render);
+  };
+
+  window.addEventListener('resize', resize, { passive: true });
+  render();
+};
+
+const hideVictoryOverlay = () => {
+  if (!victoryOverlayEl) return;
+  victoryOverlayEl.classList.remove('active');
+  victoryOverlayEl.setAttribute('aria-hidden', 'true');
+  stopVictoryConfetti();
+};
+
+const showVictoryOverlay = (winnerId, winnerName) => {
+  if (!victoryOverlayEl || !victoryTitleEl || !victoryWinnerEl) return;
+  const iWon = winnerId === socket.id;
+  const title = iWon ? 'VICTORY!' : 'DEFEAT';
+  const winnerLabel = winnerName || formatPlayerLabel(winnerId);
+  if (victoryOverlayEl.classList.contains('active') && victoryWinnerEl.textContent === winnerLabel) {
+    return;
+  }
+  const winnerPlayer = getPlayerById(winnerId);
+  const winnerColor = winnerPlayer ? winnerPlayer.color || '#f8fafc' : '#f8fafc';
+
+  victoryTitleEl.textContent = title;
+  victoryWinnerEl.textContent = winnerLabel;
+  victoryWinnerEl.style.color = winnerColor;
+
+  victoryOverlayEl.classList.add('active');
+  victoryOverlayEl.setAttribute('aria-hidden', 'false');
+  hideActionModal();
+  startVictoryConfetti();
+};
+
+const updateTurnTimerUi = () => {
+  if (!turnTimerBarEl || !turnTimerFillEl || !turnTimerLabelEl) return;
+
+  if (!turnTimerEndMs || !turnTimerDurationMs || phase === 'LOBBY') {
+    turnTimerBarEl.classList.add('hidden');
+    turnTimerBarEl.setAttribute('aria-hidden', 'true');
+    return;
+  }
+
+  turnTimerBarEl.classList.remove('hidden');
+  turnTimerBarEl.setAttribute('aria-hidden', 'false');
+
+  const now = Date.now();
+  const remaining = Math.max(0, turnTimerEndMs - now);
+  const progress = Math.max(0, Math.min(1, remaining / turnTimerDurationMs));
+  turnTimerFillEl.style.transform = `scaleX(${progress.toFixed(4)})`;
+
+  if (progress < 0.2) {
+    turnTimerFillEl.style.filter = 'saturate(1.35) brightness(1.1)';
+  } else {
+    turnTimerFillEl.style.filter = 'none';
+  }
+
+  const secs = Math.ceil(remaining / 1000);
+  turnTimerLabelEl.textContent = `TURN TIMER ${secs}s`;
+};
+
+const startTurnTimerLoop = () => {
+  const tick = () => {
+    updateTurnTimerUi();
+    window.requestAnimationFrame(tick);
+  };
+  window.requestAnimationFrame(tick);
+};
+
 const ensureFloatingLayer = () => {
   if (floatingLayerEl) return floatingLayerEl;
   floatingLayerEl = document.createElement('div');
@@ -355,6 +558,7 @@ const appendLog = (message) => {
 
 const getOwnerColor = (ownerId) => {
   if (!ownerId) return UNOWNED_COLOR;
+  if (ownerId === neutralOwnerId) return NEUTRAL_COLOR;
   const index = players.findIndex((player) => player.id === ownerId);
   if (index === -1) return UNOWNED_COLOR;
   return PLAYER_COLORS[index % PLAYER_COLORS.length];
@@ -778,6 +982,20 @@ const createHudMessage = (text) => {
   return message;
 };
 
+const createLeaveButton = () => {
+  const leaveBtn = document.createElement('button');
+  leaveBtn.className = 'btn btn-attack';
+  leaveBtn.textContent = 'ABANDONAR PARTIDA';
+  leaveBtn.onclick = () => {
+    intentionalLeave = true;
+    socket.emit('leave_game');
+    window.setTimeout(() => {
+      window.location.reload();
+    }, 120);
+  };
+  return leaveBtn;
+};
+
 const createTroopControl = (minValue, maxValue) => {
   const min = Math.max(1, Number(minValue) || 1);
   const max = Math.max(min, Number(maxValue) || min);
@@ -811,13 +1029,279 @@ const createTroopControl = (minValue, maxValue) => {
   };
 };
 
+const getTerritoryById = (territoryId, sourceMap = mapData) =>
+  (sourceMap || []).find((territory) => territory.id === territoryId) || null;
+
+const getTerritoryLabel = (territoryId, sourceMap = mapData) => {
+  const territory = getTerritoryById(territoryId, sourceMap);
+  if (!territory) return territoryId || 'Unknown';
+  return territory.name || territory.id;
+};
+
+const isLocalActionTurn = (data) => {
+  const phaseName = data.phase || phase;
+  const activePlayerId = data.currentPlayerId || currentPlayerId;
+  if (phaseName === 'LOBBY') return false;
+  if (activePlayerId !== socket.id) return false;
+  if (uiLocked || battleAnimationInProgress || battlePending) return false;
+  if (victoryOverlayEl && victoryOverlayEl.classList.contains('active')) return false;
+  return true;
+};
+
+const hideActionModal = () => {
+  if (!actionModalBackdropEl) return;
+  actionModalBackdropEl.classList.remove('active');
+  actionModalBackdropEl.setAttribute('aria-hidden', 'true');
+  if (actionModalBodyEl) actionModalBodyEl.innerHTML = '';
+  if (actionModalFooterEl) actionModalFooterEl.innerHTML = '';
+};
+
+const dismissActionModal = ({ resetSelection = true, refresh = true } = {}) => {
+  if (resetSelection) {
+    if (phase === 'TURN_ATTACK' || phase === 'TURN_FORTIFY') {
+      selectedTargetId = null;
+    }
+    if (phase === 'SETUP' || phase === 'GLOBAL_REINFORCE') {
+      selectedTerritoryId = null;
+      selectedSourceId = null;
+      selectedTargetId = null;
+    }
+  }
+  hideActionModal();
+  if (refresh) {
+    drawMap();
+    updateSidebar({
+      players,
+      phase,
+      currentPlayerId,
+      map: mapData,
+    });
+  }
+};
+
+const renderActionModal = (data) => {
+  if (!actionModalBackdropEl || !actionModalTitleEl || !actionModalBodyEl || !actionModalFooterEl) {
+    return;
+  }
+  if (!isLocalActionTurn(data)) {
+    hideActionModal();
+    return;
+  }
+
+  const phaseName = data.phase || phase;
+  const myPlayer = (data.players || players).find((player) => player.id === socket.id) || null;
+  const myPool = myPlayer ? Number(myPlayer.pool) || 0 : 0;
+  const sourceMap = data.map || mapData;
+
+  const openModal = () => {
+    actionModalBackdropEl.classList.add('active');
+    actionModalBackdropEl.setAttribute('aria-hidden', 'false');
+    actionModalBodyEl.innerHTML = '';
+    actionModalFooterEl.innerHTML = '';
+  };
+
+  if (phaseName === 'TURN_ATTACK' && selectedSourceId && selectedTargetId) {
+    const source = getTerritoryById(selectedSourceId, sourceMap);
+    const target = getTerritoryById(selectedTargetId, sourceMap);
+    const sourceTroops = source ? Number(source.troops) || 0 : 0;
+    const maxDice = Math.min(3, Math.max(0, sourceTroops - 1));
+    if (!source || !target || maxDice < 1) {
+      hideActionModal();
+      return;
+    }
+
+    openModal();
+    actionModalTitleEl.textContent = `ATTACK ${getTerritoryLabel(target.id, sourceMap)} FROM ${getTerritoryLabel(source.id, sourceMap)}`;
+
+    const stat = document.createElement('div');
+    stat.className = 'action-modal-stat';
+    stat.textContent = `AVAILABLE TROOPS: ${sourceTroops} | MAX DICE: ${maxDice}`;
+    actionModalBodyEl.appendChild(stat);
+
+    const diceRow = document.createElement('div');
+    diceRow.className = 'dice-choices';
+    const makeDiceBtn = (count) => {
+      const btn = document.createElement('button');
+      btn.className = 'btn btn-attack';
+      btn.textContent = `${count} ${count === 1 ? 'Dado' : 'Dados'}`;
+      btn.disabled = count > maxDice;
+      btn.onclick = () => {
+        if (btn.disabled) return;
+        socket.emit('attack', { fromId: selectedSourceId, toId: selectedTargetId, dice: count });
+        selectedTargetId = null;
+        hideActionModal();
+        drawMap();
+        updateSidebar({
+          players,
+          phase,
+          currentPlayerId,
+          map: mapData,
+        });
+      };
+      return btn;
+    };
+    diceRow.appendChild(makeDiceBtn(1));
+    diceRow.appendChild(makeDiceBtn(2));
+    diceRow.appendChild(makeDiceBtn(3));
+    actionModalBodyEl.appendChild(diceRow);
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn btn-secondary';
+    cancelBtn.textContent = 'CANCELAR';
+    cancelBtn.onclick = () => dismissActionModal({ resetSelection: true });
+    actionModalFooterEl.appendChild(cancelBtn);
+    return;
+  }
+
+  if (phaseName === 'TURN_FORTIFY' && selectedSourceId && selectedTargetId) {
+    const source = getTerritoryById(selectedSourceId, sourceMap);
+    if (!source) {
+      hideActionModal();
+      return;
+    }
+    const maxMove = Math.max(1, (Number(source.troops) || 1) - 1);
+
+    openModal();
+    actionModalTitleEl.textContent = 'MOVE TROOPS';
+
+    const stat = document.createElement('div');
+    stat.className = 'action-modal-stat';
+    stat.textContent = `${getTerritoryLabel(selectedSourceId, sourceMap)} -> ${getTerritoryLabel(selectedTargetId, sourceMap)}`;
+    actionModalBodyEl.appendChild(stat);
+
+    const troopControl = createTroopControl(1, maxMove);
+    actionModalBodyEl.appendChild(troopControl.wrapper);
+    const movingLabel = document.createElement('div');
+    movingLabel.className = 'modal-moving-value';
+    movingLabel.textContent = `MOVING: ${troopControl.getValue()}`;
+    actionModalBodyEl.appendChild(movingLabel);
+
+    const slider = troopControl.wrapper.querySelector('.troop-slider');
+    if (slider) {
+      slider.addEventListener('input', () => {
+        movingLabel.textContent = `MOVING: ${troopControl.getValue()}`;
+      });
+    }
+
+    const confirmBtn = document.createElement('button');
+    confirmBtn.className = 'btn btn-fortify';
+    confirmBtn.textContent = 'CONFIRM MOVE';
+    confirmBtn.onclick = () => {
+      const count = troopControl.getValue();
+      if (Number.isNaN(count) || count < 1) {
+        showToast('Please enter a valid number', 'error');
+        return;
+      }
+      socket.emit('fortify', { fromId: selectedSourceId, toId: selectedTargetId, count });
+      selectedSourceId = null;
+      selectedTargetId = null;
+      hideActionModal();
+      drawMap();
+      updateSidebar({
+        players,
+        phase,
+        currentPlayerId,
+        map: mapData,
+      });
+    };
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn btn-secondary';
+    cancelBtn.textContent = 'CANCEL';
+    cancelBtn.onclick = () => dismissActionModal({ resetSelection: true });
+
+    actionModalFooterEl.appendChild(confirmBtn);
+    actionModalFooterEl.appendChild(cancelBtn);
+    return;
+  }
+
+  if (
+    (phaseName === 'SETUP' || phaseName === 'GLOBAL_REINFORCE') &&
+    selectedTerritoryId &&
+    myPool > 0
+  ) {
+    const territory = getTerritoryById(selectedTerritoryId, sourceMap);
+    if (!territory || territory.ownerId !== socket.id) {
+      hideActionModal();
+      return;
+    }
+
+    openModal();
+    actionModalTitleEl.textContent = `REINFORCE ${getTerritoryLabel(selectedTerritoryId, sourceMap)}`;
+
+    const stat = document.createElement('div');
+    stat.className = 'action-modal-stat';
+    stat.textContent = `POOL AVAILABLE: ${myPool}`;
+    actionModalBodyEl.appendChild(stat);
+
+    const troopControl = createTroopControl(1, Math.max(1, myPool));
+    actionModalBodyEl.appendChild(troopControl.wrapper);
+
+    const quick = document.createElement('div');
+    quick.className = 'quick-actions';
+    const addQuickBtn = (label, computeValue) => {
+      const btn = document.createElement('button');
+      btn.className = 'btn btn-secondary';
+      btn.textContent = label;
+      btn.onclick = () => {
+        const slider = troopControl.wrapper.querySelector('.troop-slider');
+        if (!slider) return;
+        const nextValue = computeValue(Number(slider.value) || 1);
+        slider.value = String(nextValue);
+        slider.dispatchEvent(new Event('input'));
+      };
+      quick.appendChild(btn);
+    };
+    addQuickBtn('+1', (current) => Math.min(myPool, current + 1));
+    addQuickBtn('+5', (current) => Math.min(myPool, current + 5));
+    addQuickBtn('MAX', () => myPool);
+    actionModalBodyEl.appendChild(quick);
+
+    const deployBtn = document.createElement('button');
+    deployBtn.className = 'btn btn-primary';
+    deployBtn.textContent = 'DEPLOY';
+    deployBtn.onclick = () => {
+      const count = troopControl.getValue();
+      if (Number.isNaN(count) || count < 1) {
+        showToast('Please enter a valid number', 'error');
+        return;
+      }
+      if (count > myPool) {
+        showToast('Not enough troops!', 'error');
+        return;
+      }
+      SoundManager.playDeploy();
+      socket.emit('deploy', { territoryId: selectedTerritoryId, count });
+      selectedTerritoryId = null;
+      selectedSourceId = null;
+      selectedTargetId = null;
+      hideActionModal();
+      drawMap();
+      updateSidebar({
+        players,
+        phase,
+        currentPlayerId,
+        map: mapData,
+      });
+    };
+    actionModalFooterEl.appendChild(deployBtn);
+    return;
+  }
+
+  hideActionModal();
+};
+
 const updateSidebar = (data) => {
   const container = document.getElementById('dynamic-actions-container');
+  const sidebar = document.getElementById('sidebar');
   if (!container) return;
   container.innerHTML = '';
 
   const phaseName = data.phase || phase;
   const activePlayerId = data.currentPlayerId || currentPlayerId;
+  if (sidebar) {
+    sidebar.setAttribute('data-phase', phaseName);
+  }
 
   if (currentPhaseEl) {
     currentPhaseEl.textContent = phaseName;
@@ -843,6 +1327,11 @@ const updateSidebar = (data) => {
 
       const top = document.createElement('div');
       top.className = 'player-top';
+
+      const avatar = document.createElement('div');
+      avatar.className = 'commander-avatar';
+      avatar.textContent = 'CMD';
+      top.appendChild(avatar);
 
       const name = document.createElement('div');
       name.className = 'player-name';
@@ -875,6 +1364,15 @@ const updateSidebar = (data) => {
 
       card.appendChild(top);
       card.appendChild(stats);
+
+      if (phaseName === 'LOBBY') {
+        const status = document.createElement('div');
+        const isReady = Boolean(player.ready);
+        status.className = `player-status ${isReady ? 'ready' : 'waiting'}`;
+        status.textContent = isReady ? 'LISTO' : 'Esperando...';
+        card.appendChild(status);
+      }
+
       playerListEl.appendChild(card);
     });
   }
@@ -887,159 +1385,66 @@ const updateSidebar = (data) => {
       container.appendChild(list);
     }
 
+    if (myPlayer) {
+      const readyBtn = document.createElement('button');
+      readyBtn.className = 'btn btn-ready';
+      readyBtn.textContent = `TOGGLE READY (${myPlayer.ready ? 'LISTO' : 'Esperando...'})`;
+      readyBtn.onclick = () => {
+        socket.emit('toggle_ready');
+      };
+      container.appendChild(readyBtn);
+    }
+
     if (data.players && data.players[0] && data.players[0].id === socket.id) {
       const startBtn = document.createElement('button');
       startBtn.className = 'btn btn-primary';
       startBtn.textContent = 'START GAME';
-      startBtn.disabled = data.players.length < 2;
+      const canStart = Boolean(data.canStartGame);
+      startBtn.disabled = !canStart;
       startBtn.onclick = () => {
         if (startBtn.disabled) return;
         socket.emit('start_game');
       };
       container.appendChild(startBtn);
+      if (!canStart) {
+        container.appendChild(createHudMessage('Min 2 jugadores y todos en LISTO.'));
+      }
     } else {
       container.appendChild(createHudMessage('Waiting for host command...'));
     }
+    hideActionModal();
     return;
   }
 
-  if (activePlayerId !== socket.id || uiLocked || battleAnimationInProgress || battlePending) {
-    const waitingText = uiLocked
-      ? 'Game locked.'
-      : battlePending
-        ? 'Battle pending...'
-        : battleAnimationInProgress
-          ? 'Resolving battle...'
+  const waitingText = uiLocked
+    ? 'Game locked.'
+    : battlePending
+      ? 'Battle pending...'
+      : battleAnimationInProgress
+        ? 'Resolving battle...'
+        : activePlayerId === socket.id
+          ? 'Selecciona territorios en el mapa para abrir acciones.'
           : 'Awaiting your turn...';
-    container.appendChild(createHudMessage(waitingText));
-    return;
-  }
-
-  if (phaseName === 'SETUP' || phaseName === 'GLOBAL_REINFORCE') {
-    const header = document.createElement('div');
-    header.className = 'action-header';
-    header.textContent = `Reinforcement Pool: ${myPool}`;
-    container.appendChild(header);
-  }
-
-  let troopControl = null;
-  if (phaseName === 'SETUP' || phaseName === 'GLOBAL_REINFORCE') {
-    troopControl = createTroopControl(1, Math.max(1, myPool));
-    container.appendChild(troopControl.wrapper);
-  } else if (phaseName === 'TURN_FORTIFY' && selectedSourceId) {
-    const source = mapData.find((territory) => territory.id === selectedSourceId);
-    const maxMove = Math.max(1, (source ? source.troops : 1) - 1);
-    troopControl = createTroopControl(1, maxMove);
-    container.appendChild(troopControl.wrapper);
-  }
-
-  if (phaseName === 'TURN_ATTACK' && selectedSourceId && selectedTargetId) {
-    const source = mapData.find((t) => t.id === selectedSourceId);
-    const sourceTroops = source ? source.troops : 0;
-    const maxDice = Math.min(3, Math.max(0, sourceTroops - 1));
-
-    const header = document.createElement('div');
-    header.className = 'action-header';
-    const sourceName = source ? source.name || source.id : selectedSourceId;
-    header.textContent = `Atacar desde ${sourceName} (${sourceTroops})`;
-    container.appendChild(header);
-
-    const diceRow = document.createElement('div');
-    diceRow.className = 'dice-choices';
-
-    const createDiceBtn = (count) => {
-      const dieBtn = document.createElement('button');
-      dieBtn.className = 'btn btn-attack';
-      dieBtn.textContent = `Atacar con ${count} ${count === 1 ? 'Tropa' : 'Tropas'}`;
-      dieBtn.disabled = count > maxDice;
-      dieBtn.onclick = () => {
-        if (dieBtn.disabled) return;
-        socket.emit('attack', { fromId: selectedSourceId, toId: selectedTargetId, dice: count });
-        selectedTargetId = null;
-      };
-      return dieBtn;
-    };
-
-    diceRow.appendChild(createDiceBtn(1));
-    diceRow.appendChild(createDiceBtn(2));
-    diceRow.appendChild(createDiceBtn(3));
-
-    container.appendChild(diceRow);
-  } else {
-    const mainBtn = document.createElement('button');
-    mainBtn.className = 'btn btn-primary';
-
-    if (phaseName === 'SETUP' || phaseName === 'GLOBAL_REINFORCE') {
-      mainBtn.textContent = 'DEPLOY';
-      mainBtn.onclick = () => {
-        if (!selectedTerritoryId) {
-          window.alert('Select a territory first!');
-          return;
-        }
-        const territory = (data.map || []).find((t) => t.id === selectedTerritoryId);
-        if (!territory || territory.ownerId !== socket.id) {
-          window.alert('You can only deploy troops to your own territories!');
-          return;
-        }
-        const count = troopControl ? troopControl.getValue() : 1;
-        if (Number.isNaN(count) || count < 1) {
-          window.alert('Please enter a valid number');
-          return;
-        }
-        if (count > myPool) {
-          window.alert('Not enough troops!');
-          return;
-        }
-        SoundManager.playDeploy();
-        socket.emit('deploy', { territoryId: selectedTerritoryId, count });
-        selectedTerritoryId = null;
-        selectedSourceId = null;
-        selectedTargetId = null;
-      };
-    } else if (phaseName === 'TURN_ATTACK') {
-      mainBtn.textContent = 'ATTACK';
-      mainBtn.className = 'btn btn-attack';
-      mainBtn.onclick = () => {
-        if (!selectedSourceId || !selectedTargetId) {
-          window.alert('Select source and target territories.');
-          return;
-        }
-        socket.emit('attack', { fromId: selectedSourceId, toId: selectedTargetId, dice: 1 });
-        selectedTargetId = null;
-      };
-    } else if (phaseName === 'TURN_FORTIFY') {
-      mainBtn.textContent = 'FORTIFY';
-      mainBtn.className = 'btn btn-fortify';
-      mainBtn.onclick = () => {
-        if (!selectedSourceId || !selectedTargetId) {
-          window.alert('Select source and target territories.');
-          return;
-        }
-        const count = troopControl ? troopControl.getValue() : 1;
-        if (Number.isNaN(count) || count < 1) {
-          window.alert('Please enter a valid number');
-          return;
-        }
-        socket.emit('fortify', { fromId: selectedSourceId, toId: selectedTargetId, count });
-        selectedSourceId = null;
-        selectedTargetId = null;
-      };
-    }
-
-    container.appendChild(mainBtn);
-  }
+  container.appendChild(createHudMessage(waitingText));
 
   const endBtn = document.createElement('button');
   endBtn.className = 'btn btn-secondary';
   endBtn.textContent = 'End Phase / Skip';
+  endBtn.disabled =
+    activePlayerId !== socket.id || uiLocked || battleAnimationInProgress || battlePending;
   endBtn.onclick = () => {
+    if (endBtn.disabled) return;
     socket.emit('end_phase');
   };
   container.appendChild(endBtn);
+  container.appendChild(createLeaveButton());
+
+  renderActionModal(data);
 };
 
 const handleTerritoryClick = (territoryId) => {
   if (phase === 'LOBBY' || uiLocked || battlePending || battleAnimationInProgress) return;
+  if (victoryOverlayEl && victoryOverlayEl.classList.contains('active')) return;
 
   const clicked = mapData.find((territory) => territory.id === territoryId);
   if (!clicked) return;
@@ -1105,13 +1510,52 @@ const handleTerritoryClick = (territoryId) => {
   });
 };
 
+if (welcomeFormEl) {
+  welcomeFormEl.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const safeNickname = sanitizeNickname(nicknameInputEl ? nicknameInputEl.value : '');
+    if (!safeNickname) {
+      showToast('Ingresa un nickname valido (max 12).', 'error');
+      return;
+    }
+    pendingNickname = safeNickname;
+    socket.emit('join_game', { displayName: safeNickname });
+  });
+}
+
+if (actionModalCloseEl) {
+  actionModalCloseEl.addEventListener('click', () => {
+    dismissActionModal({ resetSelection: true });
+  });
+}
+
+if (actionModalBackdropEl && actionModalPanelEl) {
+  actionModalBackdropEl.addEventListener('click', (event) => {
+    if (event.target !== actionModalBackdropEl) return;
+    dismissActionModal({ resetSelection: true });
+  });
+}
+
+if (returnLobbyBtnEl) {
+  returnLobbyBtnEl.addEventListener('click', () => {
+    hideVictoryOverlay();
+    socket.emit('return_to_lobby');
+  });
+}
+
+startTurnTimerLoop();
+openWelcomeOverlay();
+
 socket.on('connect', () => {
-  socket.emit('join_game');
+  if (hasJoinedGame && pendingNickname) {
+    socket.emit('join_game', { displayName: pendingNickname });
+  } else if (!hasJoinedGame) {
+    openWelcomeOverlay();
+  }
 });
 
 socket.on('error_message', (message) => {
-  window.alert(message);
-  uiLocked = true;
+  showToast(message, 'error');
   updateSidebar({
     players,
     phase,
@@ -1120,9 +1564,16 @@ socket.on('error_message', (message) => {
   });
 });
 
+socket.on('server_message', (message) => {
+  if (message === 'Kicked for inactivity') {
+    kickedByInactivity = true;
+  }
+  showToast(message, 'info');
+});
+
 socket.on('game_reset', (message) => {
   if (message) {
-    window.alert(message);
+    showToast(message, 'info');
   }
   uiLocked = false;
   battlePending = false;
@@ -1133,7 +1584,12 @@ socket.on('game_reset', (message) => {
   selectedSourceId = null;
   selectedTargetId = null;
   pendingFloatingEvents = [];
+  queuedGameOverPayload = null;
+  turnTimerEndMs = null;
+  turnTimerDurationMs = 0;
   SoundManager.stopDiceRoll();
+  hideVictoryOverlay();
+  hideActionModal();
   if (battleTimeoutId) {
     window.clearTimeout(battleTimeoutId);
     battleTimeoutId = null;
@@ -1176,9 +1632,12 @@ socket.on('battle_cancelled', () => {
   if (battleOverlayStateEl) {
     battleOverlayStateEl.innerHTML = '';
   }
+  hideActionModal();
+  showToast('Batalla cancelada.', 'info');
 });
 
 socket.on('battle_ready', (payload) => {
+  hideActionModal();
   openBattleReadyOverlay(payload);
   updateSidebar({
     players,
@@ -1211,6 +1670,10 @@ socket.on('battle_anim', (payload) => {
       currentPlayerId,
       map: mapData,
     });
+    if (queuedGameOverPayload) {
+      showVictoryOverlay(queuedGameOverPayload.winnerId, queuedGameOverPayload.winnerName);
+      queuedGameOverPayload = null;
+    }
   });
 
   const attackTroopCount = payload ? payload.attackTroopCount : 0;
@@ -1225,14 +1688,41 @@ socket.on('battle_anim', (payload) => {
   );
 });
 
+socket.on('turn_skipped', ({ playerId } = {}) => {
+  const label = formatPlayerLabel(playerId);
+  showToast(`Turno agotado: ${label}.`, 'info');
+});
+
+socket.on('game_over', ({ winnerId, winnerName } = {}) => {
+  const payload = { winnerId, winnerName };
+  if (battleAnimationInProgress) {
+    queuedGameOverPayload = payload;
+    return;
+  }
+  showVictoryOverlay(winnerId, winnerName);
+});
+
 socket.on('game_update', (data) => {
   const previousMap = Array.isArray(mapData) ? mapData : [];
   mapData = data.map || mapData;
   players = data.players || players;
   phase = data.phase || phase;
   currentPlayerId = data.currentPlayerId || currentPlayerId;
+  neutralOwnerId = data.neutralId || neutralOwnerId;
+  turnTimerEndMs = Number(data.turnTimerEndsAt) || null;
+  turnTimerDurationMs = Number(data.turnTimerDurationMs) || 0;
   const troopDeltaEvents = hasReceivedInitialState ? getTroopDeltaEvents(previousMap, mapData) : [];
   hasReceivedInitialState = true;
+
+  if (!hasJoinedGame) {
+    const me = (data.players || []).find((player) => player.id === socket.id);
+    if (me) {
+      hasJoinedGame = true;
+      pendingNickname = me.displayName || pendingNickname;
+      closeWelcomeOverlay();
+      showToast(`Bienvenido, ${pendingNickname}.`, 'success');
+    }
+  }
 
   if (data.lastAttack) {
     const {
@@ -1261,5 +1751,20 @@ socket.on('game_update', (data) => {
   } else if (troopDeltaEvents.length) {
     pendingFloatingEvents.push(...troopDeltaEvents);
   }
+
+  if (data.winnerId && !battleAnimationInProgress) {
+    showVictoryOverlay(data.winnerId, data.winnerName);
+  }
+
+  updateTurnTimerUi();
   updateSidebar(data);
+});
+
+socket.on('disconnect', (reason) => {
+  if (intentionalLeave) return;
+  if (reason === 'io server disconnect' || kickedByInactivity) {
+    window.alert('Desconectado por inactividad. Recarga para jugar de nuevo');
+    return;
+  }
+  showToast('Conexion cerrada. Recarga para volver a entrar.', 'error');
 });

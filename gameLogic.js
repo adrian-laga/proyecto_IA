@@ -1,6 +1,7 @@
 const mapData = require('./data/mapData.json');
 
 const PLAYER_COLORS = ['#00FFFF', '#FF4444', '#44FF44', '#FFFF00'];
+const NEUTRAL_ID = 'neutral';
 const PLAYER_CALLSIGNS = [
   'General Alpha',
   'Commander Bravo',
@@ -20,6 +21,7 @@ class RiskGame {
     this.currentPlayerIndex = 0;
     this.lastAttack = null;
     this.lastAttackId = 0;
+    this.winnerId = null;
     this.map = (mapData.territories || []).map((territory) => ({
       ...JSON.parse(JSON.stringify(territory)),
       ownerId: null,
@@ -27,19 +29,29 @@ class RiskGame {
     }));
   }
 
-  addPlayer(socketId) {
+  sanitizeDisplayName(rawName) {
+    const fallback = this.getNextDisplayName();
+    const safe = String(rawName || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 12);
+    return safe || fallback;
+  }
+
+  addPlayer(socketId, requestedName = '') {
     if (this.phase !== 'LOBBY') return false;
     if (this.players.length >= 4) return false;
     if (this.players.some((player) => player.id === socketId)) return false;
 
     const color = PLAYER_COLORS[this.players.length % PLAYER_COLORS.length];
-    const displayName = this.getNextDisplayName();
+    const displayName = this.sanitizeDisplayName(requestedName);
     this.players.push({
       id: socketId,
       displayName,
       color,
       pool: 0,
       troops: 0,
+      ready: false,
     });
     return true;
   }
@@ -52,22 +64,72 @@ class RiskGame {
   }
 
   removePlayer(socketId) {
-    if (this.phase !== 'LOBBY') return false;
     const index = this.players.findIndex((player) => player.id === socketId);
     if (index === -1) return false;
+
+    if (this.phase !== 'LOBBY') {
+      this.neutralizePlayerTerritories(socketId);
+      this.players.splice(index, 1);
+      if (this.players.length > 0) {
+        if (index < this.currentPlayerIndex) {
+          this.currentPlayerIndex -= 1;
+        } else if (this.currentPlayerIndex >= this.players.length) {
+          this.currentPlayerIndex = 0;
+        }
+      } else {
+        this.currentPlayerIndex = 0;
+      }
+      return true;
+    }
+
     this.players.splice(index, 1);
     return true;
   }
 
-  startGame() {
+  neutralizePlayerTerritories(playerId) {
+    this.map.forEach((territory) => {
+      if (territory.ownerId === playerId) {
+        territory.ownerId = NEUTRAL_ID;
+      }
+    });
+  }
+
+  setPlayerReady(socketId, readyValue) {
+    if (this.phase !== 'LOBBY') return false;
+    const player = this.getPlayer(socketId);
+    if (!player) return false;
+    player.ready = Boolean(readyValue);
+    return true;
+  }
+
+  togglePlayerReady(socketId) {
+    if (this.phase !== 'LOBBY') return false;
+    const player = this.getPlayer(socketId);
+    if (!player) return false;
+    player.ready = !player.ready;
+    return true;
+  }
+
+  areAllPlayersReady() {
     if (this.players.length < 2) return false;
+    return this.players.every((player) => Boolean(player.ready));
+  }
+
+  canStartGame() {
+    return this.phase === 'LOBBY' && this.areAllPlayersReady();
+  }
+
+  startGame() {
+    if (!this.canStartGame()) return false;
 
     this.phase = 'SETUP';
     this.isFirstRound = true;
+    this.winnerId = null;
 
     const startingPool = this.getStartingPool(this.players.length);
     this.players.forEach((player) => {
       player.pool = startingPool;
+      player.ready = false;
     });
 
     this.shuffleAndDistribute();
@@ -152,6 +214,7 @@ class RiskGame {
   }
 
   deploy(playerId, territoryId, count) {
+    if (this.winnerId) return false;
     const player = this.getPlayer(playerId);
     if (!player) {
       console.log('Error: Player not found for socket', playerId);
@@ -214,6 +277,7 @@ class RiskGame {
   }
 
   nextPhase() {
+    if (this.winnerId) return false;
     if (this.phase === 'GLOBAL_REINFORCE') {
       const currentPlayer = this.getCurrentPlayer();
       if (currentPlayer && currentPlayer.pool === 0) {
@@ -242,6 +306,10 @@ class RiskGame {
   }
 
   nextTurn() {
+    if (!this.players.length) {
+      this.currentPlayerIndex = 0;
+      return;
+    }
     this.currentPlayerIndex = (this.currentPlayerIndex + 1) % this.players.length;
 
     if (this.currentPlayerIndex === 0) {
@@ -255,7 +323,23 @@ class RiskGame {
     this.phase = 'TURN_ATTACK';
   }
 
+  getPlayerTerritoryCount(playerId) {
+    return this.map.reduce((count, territory) => count + (territory.ownerId === playerId ? 1 : 0), 0);
+  }
+
+  checkForWinner(playerId) {
+    if (!playerId) return null;
+    if (this.getPlayerTerritoryCount(playerId) >= this.map.length) {
+      this.winnerId = playerId;
+      return playerId;
+    }
+    return null;
+  }
+
   attack(playerId, fromId, toId, attackTroopCount) {
+    if (this.winnerId) {
+      return null;
+    }
     if (this.phase !== 'TURN_ATTACK') {
       return null;
     }
@@ -269,7 +353,9 @@ class RiskGame {
       return null;
     }
 
-    if (from.ownerId !== playerId || to.ownerId === playerId) {
+    const isNeutralTarget = to.ownerId === NEUTRAL_ID;
+    const isEnemyPlayerTarget = Boolean(to.ownerId) && to.ownerId !== playerId;
+    if (from.ownerId !== playerId || (!isNeutralTarget && !isEnemyPlayerTarget)) {
       return null;
     }
 
@@ -322,6 +408,7 @@ class RiskGame {
     to.troops -= defenderLosses;
 
     let conquered = false;
+    let winnerId = null;
     if (to.troops <= 0) {
       conquered = true;
       to.ownerId = playerId;
@@ -329,6 +416,7 @@ class RiskGame {
       const moveCount = Math.max(1, survivors);
       from.troops -= moveCount;
       to.troops = moveCount;
+      winnerId = this.checkForWinner(playerId);
       console.log('Conquered! Moved troops');
     } else {
       console.log(`Battle result: Attacker lost ${attackerLosses}, Defender lost ${defenderLosses}`);
@@ -346,6 +434,7 @@ class RiskGame {
       attackerLosses,
       defenderLosses,
       conquered,
+      winnerId,
     };
 
     return {
@@ -355,6 +444,7 @@ class RiskGame {
       attackerLosses,
       defenderLosses,
       conquered,
+      winnerId,
     };
   }
 
@@ -386,6 +476,7 @@ class RiskGame {
   }
 
   fortify(playerId, fromId, toId, count) {
+    if (this.winnerId) return false;
     if (this.phase !== 'TURN_FORTIFY') return false;
     if (this.getCurrentPlayer()?.id !== playerId) return false;
     if (!fromId || !toId || fromId === toId) return false;
@@ -412,6 +503,7 @@ class RiskGame {
     this.currentPlayerIndex = 0;
     this.lastAttack = null;
     this.lastAttackId = 0;
+    this.winnerId = null;
 
     this.map = (mapData.territories || []).map((territory) => ({
       ...JSON.parse(JSON.stringify(territory)),
@@ -423,6 +515,7 @@ class RiskGame {
       ...player,
       pool: 0,
       troops: 0,
+      ready: false,
     }));
   }
 
@@ -444,6 +537,11 @@ class RiskGame {
       phase: this.phase,
       currentPlayerId: this.getCurrentPlayer() ? this.getCurrentPlayer().id : null,
       lastAttack: this.lastAttack,
+      winnerId: this.winnerId,
+      winnerName: this.winnerId ? this.getPlayer(this.winnerId)?.displayName || null : null,
+      allPlayersReady: this.areAllPlayersReady(),
+      canStartGame: this.canStartGame(),
+      neutralId: NEUTRAL_ID,
     };
   }
 }

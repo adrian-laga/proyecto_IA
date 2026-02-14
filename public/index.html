@@ -4,6 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AI Risk Game</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Roboto+Mono:wght@500;700&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
@@ -18,19 +24,25 @@
         </section>
 
         <aside id="sidebar" class="sidebar">
-          <section class="hud-section phase-section">
-            <div class="section-title">Mission Phase</div>
-            <div id="currentPlayer" class="current-player-label">Waiting for game...</div>
-            <div id="currentPhase" class="phase-badge">LOBBY</div>
+          <section class="hud-section phase-section tactical-header">
+            <div class="section-title">Battle Command</div>
+            <div class="phase-row">
+              <div id="currentPhase" class="phase-badge">LOBBY</div>
+              <div id="currentPlayer" class="current-player-label">Waiting for game...</div>
+            </div>
+            <div id="turn-timer-bar" class="turn-timer-bar hidden" aria-hidden="true">
+              <div id="turn-timer-fill" class="turn-timer-fill"></div>
+              <div id="turn-timer-label" class="turn-timer-label">TURN TIMER</div>
+            </div>
           </section>
 
           <section class="hud-section players-section">
-            <div class="section-title">Field Commanders</div>
+            <div class="section-title">Commanders</div>
             <div id="playerList" class="player-cards"></div>
           </section>
 
           <section class="hud-section actions-section">
-            <div class="section-title">Command Actions</div>
+            <div class="section-title">Tactical Actions</div>
             <div id="dynamic-actions-container"></div>
           </section>
 
@@ -49,6 +61,46 @@
         <div id="battle-dice-container"></div>
       </div>
     </div>
+
+    <div id="action-modal-backdrop" class="action-modal-backdrop" aria-hidden="true">
+      <div id="action-modal-panel" class="action-modal-panel" role="dialog" aria-modal="true">
+        <button id="action-modal-close" class="action-modal-close" type="button" aria-label="Cerrar">
+          x
+        </button>
+        <h3 id="action-modal-title">ACTION</h3>
+        <div id="action-modal-body"></div>
+        <div id="action-modal-footer"></div>
+      </div>
+    </div>
+
+    <div id="welcome-overlay" class="modal-overlay active" aria-hidden="false">
+      <div class="modal-card">
+        <h2>Bienvenido, Comandante</h2>
+        <p>Elige un nickname para entrar al lobby.</p>
+        <form id="welcome-form">
+          <input
+            id="nickname-input"
+            type="text"
+            maxlength="12"
+            autocomplete="off"
+            placeholder="Nickname (max 12)"
+            required
+          />
+          <button id="welcome-submit" class="btn btn-primary" type="submit">ENTRAR</button>
+        </form>
+      </div>
+    </div>
+
+    <div id="victory-overlay" class="victory-overlay" aria-hidden="true">
+      <canvas id="victory-confetti" class="victory-confetti"></canvas>
+      <div class="victory-panel">
+        <h2 id="victory-title">VICTORY!</h2>
+        <p id="victory-winner">Ganador</p>
+        <button id="return-lobby-btn" class="btn btn-primary" type="button">VOLVER AL LOBBY</button>
+      </div>
+    </div>
+
+    <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script src="client.js"></script>
