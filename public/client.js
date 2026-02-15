@@ -53,6 +53,22 @@ const returnLobbyBtnEl = document.getElementById('return-lobby-btn');
 const turnTimerBarEl = document.getElementById('turn-timer-bar');
 const turnTimerFillEl = document.getElementById('turn-timer-fill');
 const turnTimerLabelEl = document.getElementById('turn-timer-label');
+const cardsHudBtnEl = document.getElementById('btn-cards');
+const cardOverlayEl = document.getElementById('card-overlay');
+const cardOverlayCloseEl = document.getElementById('card-overlay-close');
+const cardOverlaySubtitleEl = document.getElementById('card-overlay-subtitle');
+const cardGridEl = document.getElementById('card-grid');
+const cardCancelBtnEl = document.getElementById('card-cancel-btn');
+const cardTradeBtnEl = document.getElementById('card-trade-btn');
+const cardRevealOverlayEl = document.getElementById('card-reveal-overlay');
+const cardRevealTypeEl = document.getElementById('card-reveal-type');
+const cardRevealIconEl = document.getElementById('card-reveal-icon');
+const cardRevealNameEl = document.getElementById('card-reveal-name');
+const cardRevealCardEl = document.getElementById('card-reveal-card');
+const cardRevealClaimBtnEl = document.getElementById('card-reveal-claim-btn');
+const rulesBtnEl = document.getElementById('rules-btn');
+const rulesModalEl = document.getElementById('rules-modal');
+const rulesCloseBtnEl = document.getElementById('rules-close-btn');
 
 const PLAYER_COLORS = ['#3498db', '#e74c3c', '#2ecc71', '#f1c40f'];
 const UNOWNED_COLOR = '#2b2f36';
@@ -132,6 +148,13 @@ let turnTimerDurationMs = 0;
 let intentionalLeave = false;
 let kickedByInactivity = false;
 let neutralOwnerId = 'neutral';
+let myHand = [];
+let cardSelection = new Set();
+let cardOverlayOpen = false;
+let nextTradeValue = 4;
+let globalTradeInCount = 0;
+let cardRevealQueue = [];
+let cardRevealActive = false;
 
 const SoundManager = {
   ctx: null,
@@ -270,6 +293,22 @@ const SoundManager = {
     this.playTone({ frequency: 185, type: 'sawtooth', volume: 0.05, duration: 0.11, offset: 0.08 });
     this.playTone({ frequency: 147, type: 'triangle', volume: 0.045, duration: 0.14, offset: 0.16 });
   },
+
+  playTradeIn() {
+    this.unlock();
+    this.playTone({ frequency: 420, type: 'triangle', volume: 0.07, duration: 0.07 });
+    this.playTone({ frequency: 620, type: 'square', volume: 0.065, duration: 0.07, offset: 0.06 });
+    this.playTone({ frequency: 820, type: 'triangle', volume: 0.07, duration: 0.09, offset: 0.13 });
+    this.playTone({ frequency: 980, type: 'triangle', volume: 0.06, duration: 0.08, offset: 0.19 });
+  },
+
+  playCardReveal() {
+    this.unlock();
+    this.playTone({ frequency: 330, type: 'triangle', volume: 0.06, duration: 0.06 });
+    this.playTone({ frequency: 494, type: 'triangle', volume: 0.065, duration: 0.08, offset: 0.06 });
+    this.playTone({ frequency: 740, type: 'square', volume: 0.055, duration: 0.09, offset: 0.13 });
+    this.playTone({ frequency: 988, type: 'triangle', volume: 0.06, duration: 0.12, offset: 0.2 });
+  },
 };
 
 const showToast = (message, type = 'info') => {
@@ -296,6 +335,170 @@ const sanitizeNickname = (name) => {
     .trim()
     .slice(0, 12);
   return safe;
+};
+
+const getCardTypeIcon = (type) => {
+  if (type === 'INFANTRY') return '\u2694';
+  if (type === 'CAVALRY') return '\u265E';
+  if (type === 'ARTILLERY') return '\u2739';
+  return '\u2605';
+};
+
+const isValidTradeSelection = (cards) => {
+  if (!Array.isArray(cards) || cards.length !== 3) return false;
+  const wildCount = cards.filter((card) => card.type === 'WILD').length;
+  const basicTypes = cards
+    .filter((card) => card.type && card.type !== 'WILD')
+    .map((card) => card.type);
+  const sameType = basicTypes.length === 0 || new Set(basicTypes).size === 1;
+  if (sameType) return true;
+  const allTypes = ['INFANTRY', 'CAVALRY', 'ARTILLERY'];
+  const present = new Set(basicTypes);
+  const missingCount = allTypes.filter((type) => !present.has(type)).length;
+  return missingCount <= wildCount;
+};
+
+const getSelectedCards = () => {
+  const selected = [];
+  cardSelection.forEach((uid) => {
+    const card = myHand.find((entry) => entry.uid === uid);
+    if (card) selected.push(card);
+  });
+  return selected;
+};
+
+const showCenterRewardText = (text) => {
+  if (!text) return;
+  const rewardEl = document.createElement('div');
+  rewardEl.className = 'center-reward-text';
+  rewardEl.textContent = String(text);
+  document.body.appendChild(rewardEl);
+  window.setTimeout(() => {
+    if (rewardEl.parentNode) {
+      rewardEl.parentNode.removeChild(rewardEl);
+    }
+  }, 920);
+};
+
+const refreshCardsHudButton = () => {
+  if (!cardsHudBtnEl) return;
+  const handCount = Array.isArray(myHand) ? myHand.length : 0;
+  cardsHudBtnEl.textContent = `CARDS (${handCount})`;
+  cardsHudBtnEl.classList.toggle('urgent', handCount >= 5);
+};
+
+const closeCardOverlay = () => {
+  if (!cardOverlayEl) return;
+  cardOverlayOpen = false;
+  cardSelection = new Set();
+  cardOverlayEl.classList.remove('active');
+  cardOverlayEl.setAttribute('aria-hidden', 'true');
+};
+
+const renderCardOverlay = () => {
+  if (!cardGridEl || !cardOverlaySubtitleEl || !cardTradeBtnEl) return;
+  cardGridEl.innerHTML = '';
+
+  if (!myHand.length) {
+    const empty = document.createElement('div');
+    empty.className = 'hud-message';
+    empty.textContent = 'No cards yet. Conquer territories to earn cards.';
+    cardGridEl.appendChild(empty);
+  } else {
+    myHand.forEach((card) => {
+      const isSelected = cardSelection.has(card.uid);
+      const cardEl = document.createElement('div');
+      cardEl.className = `card-item ${card.type === 'WILD' ? 'wild' : ''} ${isSelected ? 'selected' : ''}`.trim();
+
+      const typePill = document.createElement('div');
+      typePill.className = 'card-type-pill';
+      typePill.textContent = card.type || 'WILD';
+      cardEl.appendChild(typePill);
+
+      const iconEl = document.createElement('div');
+      iconEl.className = 'card-icon';
+      iconEl.textContent = getCardTypeIcon(card.type);
+      cardEl.appendChild(iconEl);
+
+      const nameEl = document.createElement('div');
+      nameEl.className = 'card-name';
+      nameEl.textContent = card.territoryName || 'Unknown Territory';
+      cardEl.appendChild(nameEl);
+
+      cardEl.addEventListener('click', () => {
+        if (cardSelection.has(card.uid)) {
+          cardSelection.delete(card.uid);
+        } else if (cardSelection.size < 3) {
+          cardSelection.add(card.uid);
+        } else {
+          showToast('Select only 3 cards.', 'info');
+        }
+        renderCardOverlay();
+      });
+      cardGridEl.appendChild(cardEl);
+    });
+  }
+
+  const selectedCards = getSelectedCards();
+  const hasValidTrade = selectedCards.length === 3 && isValidTradeSelection(selectedCards);
+  cardTradeBtnEl.disabled = !hasValidTrade;
+  cardTradeBtnEl.classList.toggle('card-trade-ready', hasValidTrade);
+  cardOverlaySubtitleEl.textContent = `Next trade value: +${nextTradeValue} troops | Global trades: ${globalTradeInCount}`;
+};
+
+const openCardOverlay = () => {
+  if (!cardOverlayEl) return;
+  hideActionModal();
+  cardOverlayOpen = true;
+  cardSelection = new Set();
+  cardOverlayEl.classList.add('active');
+  cardOverlayEl.setAttribute('aria-hidden', 'false');
+  renderCardOverlay();
+};
+
+const closeCardReveal = () => {
+  if (!cardRevealOverlayEl) return;
+  cardRevealActive = false;
+  cardRevealOverlayEl.classList.remove('active');
+  cardRevealOverlayEl.setAttribute('aria-hidden', 'true');
+  const next = cardRevealQueue.shift();
+  if (next) {
+    animateCardReveal(next);
+  }
+};
+
+const animateCardReveal = (cardData) => {
+  if (!cardRevealOverlayEl || !cardRevealCardEl || !cardRevealTypeEl || !cardRevealIconEl || !cardRevealNameEl) {
+    return;
+  }
+  if (cardRevealActive) {
+    cardRevealQueue.push(cardData);
+    return;
+  }
+
+  cardRevealActive = true;
+  hideActionModal();
+  closeCardOverlay();
+  SoundManager.playCardReveal();
+
+  cardRevealCardEl.className = `card-item card-reveal-card ${cardData && cardData.type === 'WILD' ? 'wild' : ''}`.trim();
+  cardRevealTypeEl.textContent = (cardData && cardData.type) || 'WILD';
+  cardRevealIconEl.textContent = getCardTypeIcon(cardData && cardData.type);
+  cardRevealNameEl.textContent = (cardData && cardData.territoryName) || 'Unknown Territory';
+  cardRevealOverlayEl.classList.add('active');
+  cardRevealOverlayEl.setAttribute('aria-hidden', 'false');
+};
+
+const openRules = () => {
+  if (!rulesModalEl) return;
+  rulesModalEl.classList.add('active');
+  rulesModalEl.setAttribute('aria-hidden', 'false');
+};
+
+const closeRules = () => {
+  if (!rulesModalEl) return;
+  rulesModalEl.classList.remove('active');
+  rulesModalEl.setAttribute('aria-hidden', 'true');
 };
 
 const openWelcomeOverlay = () => {
@@ -1299,6 +1502,13 @@ const updateSidebar = (data) => {
 
   const phaseName = data.phase || phase;
   const activePlayerId = data.currentPlayerId || currentPlayerId;
+  if (rulesBtnEl) {
+    const isLobby = phaseName === 'LOBBY';
+    rulesBtnEl.classList.toggle('hidden', !isLobby);
+  }
+  if (phaseName !== 'LOBBY') {
+    closeRules();
+  }
   if (sidebar) {
     sidebar.setAttribute('data-phase', phaseName);
   }
@@ -1309,6 +1519,12 @@ const updateSidebar = (data) => {
   }
 
   currentPlayerId = activePlayerId;
+  nextTradeValue = Number(data.nextTradeValue) || nextTradeValue;
+  globalTradeInCount = Number(data.globalTradeInCount) || 0;
+  refreshCardsHudButton();
+  if (cardsHudBtnEl) {
+    cardsHudBtnEl.disabled = phaseName === 'LOBBY' || !hasJoinedGame;
+  }
 
   const currentPlayerLabel = document.getElementById('currentPlayer');
   if (currentPlayerLabel) {
@@ -1359,8 +1575,14 @@ const updateSidebar = (data) => {
       troopsStat.innerHTML = '<span class="stat-label">Troops</span><span class="stat-value"></span>';
       troopsStat.querySelector('.stat-value').textContent = String(player.troops);
 
+      const cardsStat = document.createElement('div');
+      cardsStat.className = 'player-stat';
+      cardsStat.innerHTML = '<span class="stat-label">Cards</span><span class="stat-value"></span>';
+      cardsStat.querySelector('.stat-value').textContent = String(player.handCount || 0);
+
       stats.appendChild(poolStat);
       stats.appendChild(troopsStat);
+      stats.appendChild(cardsStat);
 
       card.appendChild(top);
       card.appendChild(stats);
@@ -1413,6 +1635,7 @@ const updateSidebar = (data) => {
       container.appendChild(createHudMessage('Waiting for host command...'));
     }
     hideActionModal();
+    closeCardOverlay();
     return;
   }
 
@@ -1536,6 +1759,73 @@ if (actionModalBackdropEl && actionModalPanelEl) {
   });
 }
 
+if (cardsHudBtnEl) {
+  cardsHudBtnEl.addEventListener('click', () => {
+    if (cardsHudBtnEl.disabled) return;
+    openCardOverlay();
+  });
+}
+
+if (cardOverlayCloseEl) {
+  cardOverlayCloseEl.addEventListener('click', () => {
+    closeCardOverlay();
+  });
+}
+
+if (cardCancelBtnEl) {
+  cardCancelBtnEl.addEventListener('click', () => {
+    closeCardOverlay();
+  });
+}
+
+if (cardOverlayEl) {
+  cardOverlayEl.addEventListener('click', (event) => {
+    if (event.target !== cardOverlayEl) return;
+    closeCardOverlay();
+  });
+}
+
+if (cardTradeBtnEl) {
+  cardTradeBtnEl.addEventListener('click', () => {
+    const selectedCards = getSelectedCards();
+    if (selectedCards.length !== 3 || !isValidTradeSelection(selectedCards)) {
+      showToast('Select a valid set of 3 cards.', 'error');
+      return;
+    }
+    socket.emit('trade_cards', { cardUids: selectedCards.map((card) => card.uid) });
+  });
+}
+
+if (cardRevealClaimBtnEl) {
+  cardRevealClaimBtnEl.addEventListener('click', () => {
+    closeCardReveal();
+  });
+}
+
+if (rulesBtnEl) {
+  rulesBtnEl.addEventListener('click', () => {
+    openRules();
+  });
+}
+
+if (rulesCloseBtnEl) {
+  rulesCloseBtnEl.addEventListener('click', () => {
+    closeRules();
+  });
+}
+
+if (rulesModalEl) {
+  rulesModalEl.addEventListener('click', (event) => {
+    if (event.target !== rulesModalEl) return;
+    closeRules();
+  });
+}
+
+window.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape') return;
+  closeRules();
+});
+
 if (returnLobbyBtnEl) {
   returnLobbyBtnEl.addEventListener('click', () => {
     hideVictoryOverlay();
@@ -1545,6 +1835,7 @@ if (returnLobbyBtnEl) {
 
 startTurnTimerLoop();
 openWelcomeOverlay();
+refreshCardsHudButton();
 
 socket.on('connect', () => {
   if (hasJoinedGame && pendingNickname) {
@@ -1571,6 +1862,38 @@ socket.on('server_message', (message) => {
   showToast(message, 'info');
 });
 
+socket.on('update_hand', (payload = {}) => {
+  myHand = Array.isArray(payload.hand) ? payload.hand : [];
+  nextTradeValue = Number(payload.nextTradeValue) || nextTradeValue;
+  globalTradeInCount = Number(payload.globalTradeInCount) || globalTradeInCount;
+  if (myHand.length < 3) {
+    cardSelection = new Set();
+  } else {
+    const validUids = new Set(myHand.map((card) => card.uid));
+    cardSelection = new Set([...cardSelection].filter((uid) => validUids.has(uid)));
+  }
+  refreshCardsHudButton();
+  if (cardOverlayOpen) {
+    renderCardOverlay();
+  }
+});
+
+socket.on('card_earned', (cardData = {}) => {
+  animateCardReveal(cardData);
+});
+
+socket.on('cards_traded', ({ playerId, troopsAwarded } = {}) => {
+  if (!troopsAwarded) return;
+  if (playerId === socket.id) {
+    closeCardOverlay();
+    showCenterRewardText(`+${troopsAwarded} TROOPS!`);
+    SoundManager.playTradeIn();
+    showToast(`Trade-in successful: +${troopsAwarded} troops`, 'success');
+    return;
+  }
+  showToast(`${formatPlayerLabel(playerId)} traded cards`, 'info');
+});
+
 socket.on('game_reset', (message) => {
   if (message) {
     showToast(message, 'info');
@@ -1583,6 +1906,13 @@ socket.on('game_reset', (message) => {
   selectedTerritoryId = null;
   selectedSourceId = null;
   selectedTargetId = null;
+  myHand = [];
+  cardSelection = new Set();
+  cardOverlayOpen = false;
+  cardRevealQueue = [];
+  cardRevealActive = false;
+  nextTradeValue = 4;
+  globalTradeInCount = 0;
   pendingFloatingEvents = [];
   queuedGameOverPayload = null;
   turnTimerEndMs = null;
@@ -1590,6 +1920,13 @@ socket.on('game_reset', (message) => {
   SoundManager.stopDiceRoll();
   hideVictoryOverlay();
   hideActionModal();
+  closeCardOverlay();
+  closeRules();
+  if (cardRevealOverlayEl) {
+    cardRevealOverlayEl.classList.remove('active');
+    cardRevealOverlayEl.setAttribute('aria-hidden', 'true');
+  }
+  refreshCardsHudButton();
   if (battleTimeoutId) {
     window.clearTimeout(battleTimeoutId);
     battleTimeoutId = null;
@@ -1709,6 +2046,8 @@ socket.on('game_update', (data) => {
   phase = data.phase || phase;
   currentPlayerId = data.currentPlayerId || currentPlayerId;
   neutralOwnerId = data.neutralId || neutralOwnerId;
+  nextTradeValue = Number(data.nextTradeValue) || nextTradeValue;
+  globalTradeInCount = Number(data.globalTradeInCount) || globalTradeInCount;
   turnTimerEndMs = Number(data.turnTimerEndsAt) || null;
   turnTimerDurationMs = Number(data.turnTimerDurationMs) || 0;
   const troopDeltaEvents = hasReceivedInitialState ? getTroopDeltaEvents(previousMap, mapData) : [];

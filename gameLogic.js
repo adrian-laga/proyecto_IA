@@ -2,6 +2,8 @@ const mapData = require('./data/mapData.json');
 
 const PLAYER_COLORS = ['#00FFFF', '#FF4444', '#44FF44', '#FFFF00'];
 const NEUTRAL_ID = 'neutral';
+const CARD_TYPES = ['INFANTRY', 'CAVALRY', 'ARTILLERY'];
+const WILD_TYPE = 'WILD';
 const PLAYER_CALLSIGNS = [
   'General Alpha',
   'Commander Bravo',
@@ -13,6 +15,68 @@ const PLAYER_CALLSIGNS = [
   'Vanguard Helix',
 ];
 
+class CardDeck {
+  constructor(territories = []) {
+    this.nextUid = 1;
+    this.baseCards = this.buildBaseDeck(territories);
+    this.drawPile = [];
+    this.discardPile = [];
+    this.reset();
+  }
+
+  buildBaseDeck(territories = []) {
+    const deck = (territories || []).map((territory, index) => ({
+      territoryId: territory.id,
+      territoryName: territory.name || territory.id,
+      type: CARD_TYPES[index % CARD_TYPES.length],
+    }));
+
+    // Two classic wild cards.
+    deck.push({ territoryId: null, territoryName: 'Wild Card', type: WILD_TYPE });
+    deck.push({ territoryId: null, territoryName: 'Wild Card', type: WILD_TYPE });
+    return deck;
+  }
+
+  shuffle(cards) {
+    const arr = Array.isArray(cards) ? [...cards] : [];
+    for (let i = arr.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  }
+
+  reset() {
+    this.drawPile = this.shuffle(this.baseCards);
+    this.discardPile = [];
+    this.nextUid = 1;
+  }
+
+  draw() {
+    if (!this.drawPile.length && this.discardPile.length) {
+      this.drawPile = this.shuffle(this.discardPile);
+      this.discardPile = [];
+    }
+    if (!this.drawPile.length) return null;
+    const card = this.drawPile.pop();
+    return {
+      ...card,
+      uid: `card_${this.nextUid++}`,
+    };
+  }
+
+  discard(cards = []) {
+    cards.forEach((card) => {
+      if (!card) return;
+      this.discardPile.push({
+        territoryId: card.territoryId || null,
+        territoryName: card.territoryName || 'Unknown',
+        type: card.type || WILD_TYPE,
+      });
+    });
+  }
+}
+
 class RiskGame {
   constructor() {
     this.players = [];
@@ -22,11 +86,76 @@ class RiskGame {
     this.lastAttack = null;
     this.lastAttackId = 0;
     this.winnerId = null;
-    this.map = (mapData.territories || []).map((territory) => ({
+    this.battleHistory = [];
+    this.globalTradeInCount = 0;
+    this.pendingCardEarned = null;
+    this.deck = new CardDeck(mapData.territories || []);
+    this.map = this.createFreshMap();
+  }
+
+  createFreshMap() {
+    return (mapData.territories || []).map((territory) => ({
       ...JSON.parse(JSON.stringify(territory)),
       ownerId: null,
       troops: 0,
     }));
+  }
+
+  pushCapped(list, entry, cap = 50) {
+    if (!Array.isArray(list)) return;
+    list.push(entry);
+    if (list.length > cap) {
+      list.shift();
+    }
+  }
+
+  getTradeInReward(tradeNumber) {
+    const n = Math.max(1, Number(tradeNumber) || 1);
+    if (n <= 5) return 2 * n + 2;
+    return 15 + (n - 6) * 5;
+  }
+
+  isValidTradeSet(cards = []) {
+    if (!Array.isArray(cards) || cards.length !== 3) return false;
+    const wildCount = cards.filter((card) => card.type === WILD_TYPE).length;
+    const nonWildTypes = cards
+      .filter((card) => card.type && card.type !== WILD_TYPE)
+      .map((card) => card.type);
+
+    const sameType = nonWildTypes.length === 0 || new Set(nonWildTypes).size === 1;
+    if (sameType) return true;
+
+    const present = new Set(nonWildTypes);
+    const missingCount = CARD_TYPES.filter((type) => !present.has(type)).length;
+    return missingCount <= wildCount;
+  }
+
+  canTradeAnySet(cards = []) {
+    if (!Array.isArray(cards) || cards.length < 3) return false;
+    for (let i = 0; i < cards.length - 2; i += 1) {
+      for (let j = i + 1; j < cards.length - 1; j += 1) {
+        for (let k = j + 1; k < cards.length; k += 1) {
+          if (this.isValidTradeSet([cards[i], cards[j], cards[k]])) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+  getHandState(playerId) {
+    const player = this.getPlayer(playerId);
+    const hand = player && Array.isArray(player.hand) ? player.hand : [];
+    const nextTradeValue = this.getTradeInReward(this.globalTradeInCount + 1);
+    return {
+      hand,
+      handCount: hand.length,
+      mustTrade: hand.length >= 5,
+      canTradeAnySet: this.canTradeAnySet(hand),
+      nextTradeValue,
+      globalTradeInCount: this.globalTradeInCount,
+    };
   }
 
   sanitizeDisplayName(rawName) {
@@ -41,17 +170,21 @@ class RiskGame {
   addPlayer(socketId, requestedName = '') {
     if (this.phase !== 'LOBBY') return false;
     if (this.players.length >= 4) return false;
-    if (this.players.some((player) => player.id === socketId)) return false;
+    const playerId = String(socketId || '');
+    if (!playerId) return false;
+    if (this.players.some((player) => player.id === playerId)) return false;
 
     const color = PLAYER_COLORS[this.players.length % PLAYER_COLORS.length];
     const displayName = this.sanitizeDisplayName(requestedName);
     this.players.push({
-      id: socketId,
+      id: playerId,
       displayName,
       color,
       pool: 0,
       troops: 0,
       ready: false,
+      hand: [],
+      conqueredThisTurn: false,
     });
     return true;
   }
@@ -66,6 +199,10 @@ class RiskGame {
   removePlayer(socketId) {
     const index = this.players.findIndex((player) => player.id === socketId);
     if (index === -1) return false;
+    const player = this.players[index];
+    if (player && Array.isArray(player.hand) && player.hand.length) {
+      this.deck.discard(player.hand);
+    }
 
     if (this.phase !== 'LOBBY') {
       this.neutralizePlayerTerritories(socketId);
@@ -125,13 +262,18 @@ class RiskGame {
     this.phase = 'SETUP';
     this.isFirstRound = true;
     this.winnerId = null;
+    this.pendingCardEarned = null;
 
     const startingPool = this.getStartingPool(this.players.length);
     this.players.forEach((player) => {
       player.pool = startingPool;
       player.ready = false;
+      player.conqueredThisTurn = false;
+      player.hand = Array.isArray(player.hand) ? player.hand : [];
     });
 
+    this.globalTradeInCount = 0;
+    this.deck.reset();
     this.shuffleAndDistribute();
     this.currentPlayerIndex = 0;
 
@@ -310,6 +452,20 @@ class RiskGame {
       this.currentPlayerIndex = 0;
       return;
     }
+
+    this.pendingCardEarned = null;
+    const currentPlayer = this.getCurrentPlayer();
+    if (currentPlayer) {
+      const earnedCard = this.grantTurnCardIfEligible(currentPlayer);
+      if (earnedCard) {
+        this.pendingCardEarned = {
+          playerId: currentPlayer.id,
+          card: earnedCard,
+        };
+      }
+      currentPlayer.conqueredThisTurn = false;
+    }
+
     this.currentPlayerIndex = (this.currentPlayerIndex + 1) % this.players.length;
 
     if (this.currentPlayerIndex === 0) {
@@ -321,6 +477,55 @@ class RiskGame {
     }
 
     this.phase = 'TURN_ATTACK';
+  }
+
+  grantTurnCardIfEligible(player) {
+    if (!player || !player.conqueredThisTurn) return null;
+    const card = this.deck.draw();
+    if (!card) return null;
+    if (!Array.isArray(player.hand)) {
+      player.hand = [];
+    }
+    player.hand.push(card);
+    return card;
+  }
+
+  consumeCardEarned() {
+    const reward = this.pendingCardEarned;
+    this.pendingCardEarned = null;
+    return reward;
+  }
+
+  tradeCards(playerId, selectedCardUids = []) {
+    if (this.winnerId || this.phase === 'LOBBY') return null;
+    const player = this.getPlayer(playerId);
+    if (!player) return null;
+    if (this.getCurrentPlayer()?.id !== playerId) return null;
+    if (!Array.isArray(player.hand) || player.hand.length < 3) return null;
+
+    const uniqueUids = [...new Set((selectedCardUids || []).map((uid) => String(uid || '')))]
+      .filter(Boolean);
+    if (uniqueUids.length !== 3) return null;
+
+    const selectedCards = uniqueUids
+      .map((uid) => player.hand.find((card) => card.uid === uid))
+      .filter(Boolean);
+    if (selectedCards.length !== 3) return null;
+    if (!this.isValidTradeSet(selectedCards)) return null;
+
+    const selectedUidSet = new Set(uniqueUids);
+    player.hand = player.hand.filter((card) => !selectedUidSet.has(card.uid));
+    this.deck.discard(selectedCards);
+
+    this.globalTradeInCount += 1;
+    const troopsAwarded = this.getTradeInReward(this.globalTradeInCount);
+    player.pool += troopsAwarded;
+
+    return {
+      troopsAwarded,
+      globalTradeInCount: this.globalTradeInCount,
+      nextTradeValue: this.getTradeInReward(this.globalTradeInCount + 1),
+    };
   }
 
   getPlayerTerritoryCount(playerId) {
@@ -412,6 +617,10 @@ class RiskGame {
     if (to.troops <= 0) {
       conquered = true;
       to.ownerId = playerId;
+      const attackerPlayer = this.getPlayer(playerId);
+      if (attackerPlayer) {
+        attackerPlayer.conqueredThisTurn = true;
+      }
       const survivors = Math.max(0, requested - attackerLosses);
       const moveCount = Math.max(1, survivors);
       from.troops -= moveCount;
@@ -436,6 +645,7 @@ class RiskGame {
       conquered,
       winnerId,
     };
+    this.pushCapped(this.battleHistory, this.lastAttack, 50);
 
     return {
       attackerDice,
@@ -498,25 +708,34 @@ class RiskGame {
   }
 
   resetGame() {
+    const lobbyPlayers = this.players.map((player) => ({
+      id: String(player.id || ''),
+      displayName: player.displayName,
+      color: player.color,
+      pool: 0,
+      troops: 0,
+      ready: false,
+      hand: [],
+      conqueredThisTurn: false,
+    }));
+
     this.phase = 'LOBBY';
     this.isFirstRound = true;
     this.currentPlayerIndex = 0;
     this.lastAttack = null;
     this.lastAttackId = 0;
     this.winnerId = null;
+    this.battleHistory = [];
+    this.globalTradeInCount = 0;
+    this.pendingCardEarned = null;
 
-    this.map = (mapData.territories || []).map((territory) => ({
-      ...JSON.parse(JSON.stringify(territory)),
-      ownerId: null,
-      troops: 0,
-    }));
+    // Drop old references to help GC reclaim previous match state.
+    this.map = [];
+    this.players = [];
 
-    this.players = this.players.map((player) => ({
-      ...player,
-      pool: 0,
-      troops: 0,
-      ready: false,
-    }));
+    this.deck.reset();
+    this.map = this.createFreshMap();
+    this.players = lobbyPlayers.filter((player) => Boolean(player.id));
   }
 
   getState() {
@@ -526,8 +745,13 @@ class RiskGame {
         0
       );
       return {
-        ...player,
+        id: player.id,
+        displayName: player.displayName,
+        color: player.color,
+        pool: player.pool,
+        ready: player.ready,
         troops,
+        handCount: Array.isArray(player.hand) ? player.hand.length : 0,
       };
     });
 
@@ -542,6 +766,8 @@ class RiskGame {
       allPlayersReady: this.areAllPlayersReady(),
       canStartGame: this.canStartGame(),
       neutralId: NEUTRAL_ID,
+      nextTradeValue: this.getTradeInReward(this.globalTradeInCount + 1),
+      globalTradeInCount: this.globalTradeInCount,
     };
   }
 }

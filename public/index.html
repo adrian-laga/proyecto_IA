@@ -30,6 +30,9 @@
               <div id="currentPhase" class="phase-badge">LOBBY</div>
               <div id="currentPlayer" class="current-player-label">Waiting for game...</div>
             </div>
+            <button id="btn-cards" class="btn btn-secondary cards-hud-btn" type="button">
+              CARDS (0)
+            </button>
             <div id="turn-timer-bar" class="turn-timer-bar hidden" aria-hidden="true">
               <div id="turn-timer-fill" class="turn-timer-fill"></div>
               <div id="turn-timer-label" class="turn-timer-label">TURN TIMER</div>
@@ -43,6 +46,9 @@
 
           <section class="hud-section actions-section">
             <div class="section-title">Tactical Actions</div>
+            <button id="rules-btn" class="btn btn-secondary rules-btn hidden" type="button">
+              HOW TO PLAY
+            </button>
             <div id="dynamic-actions-container"></div>
           </section>
 
@@ -70,6 +76,92 @@
         <h3 id="action-modal-title">ACTION</h3>
         <div id="action-modal-body"></div>
         <div id="action-modal-footer"></div>
+      </div>
+    </div>
+
+    <div id="card-overlay" class="card-overlay" aria-hidden="true">
+      <div class="card-panel" role="dialog" aria-modal="true" aria-labelledby="card-overlay-title">
+        <button id="card-overlay-close" class="action-modal-close" type="button" aria-label="Cerrar">
+          x
+        </button>
+        <h3 id="card-overlay-title">TACTICAL CARD VAULT</h3>
+        <div id="card-overlay-subtitle" class="card-overlay-subtitle">Select 3 valid cards to trade in.</div>
+        <div id="card-grid" class="card-grid"></div>
+        <div id="card-overlay-footer" class="card-overlay-footer">
+          <button id="card-cancel-btn" class="btn btn-secondary" type="button">CLOSE</button>
+          <button id="card-trade-btn" class="btn btn-primary" type="button" disabled>TRADE IN</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="card-reveal-overlay" class="card-reveal-overlay" aria-hidden="true">
+      <div class="card-reveal-panel" role="dialog" aria-modal="true" aria-labelledby="card-reveal-title">
+        <div id="card-reveal-title" class="card-reveal-title">NEW INTEL ACQUIRED</div>
+        <div id="card-reveal-card" class="card-item card-reveal-card">
+          <div id="card-reveal-type" class="card-type-pill">INFANTRY</div>
+          <div id="card-reveal-icon" class="card-icon">⚔</div>
+          <div id="card-reveal-name" class="card-name">Territory</div>
+        </div>
+        <button id="card-reveal-claim-btn" class="btn btn-primary card-reveal-claim-btn" type="button">
+          CLAIM
+        </button>
+      </div>
+    </div>
+
+    <div id="rules-modal" class="rules-modal" aria-hidden="true">
+      <div class="rules-panel" role="dialog" aria-modal="true" aria-labelledby="rules-title">
+        <button id="rules-close-btn" class="action-modal-close" type="button" aria-label="Close">
+          x
+        </button>
+        <h2 id="rules-title">FIELD MANUAL &amp; TACTICS</h2>
+        <div class="rules-content">
+          <section class="rules-section">
+            <h3>🎯 OBJECTIVE</h3>
+            <p><strong>Conquer the world</strong> by eliminating all opponents.</p>
+          </section>
+
+          <section class="rules-section">
+            <h3>⚔️ TURN PHASES</h3>
+            <ol>
+              <li>
+                <strong>DEPLOY:</strong>
+                Receive troops based on territories (min 3) + Continent Bonuses. Place them
+                strategically.
+              </li>
+              <li>
+                <strong>ATTACK:</strong>
+                Choose a source (&gt;1 troop) and a neighbor enemy. Roll dice (Best of 3 vs Best of 2).
+              </li>
+              <li>
+                <strong>FORTIFY:</strong>
+                Move troops between your connected territories to secure borders.
+              </li>
+            </ol>
+          </section>
+
+          <section class="rules-section">
+            <h3>🗺️ CONTINENT BONUSES</h3>
+            <div class="rules-bonus-grid">
+              <div><strong>Asia</strong><span>+7</span></div>
+              <div><strong>Europe</strong><span>+5</span></div>
+              <div><strong>North America</strong><span>+5</span></div>
+              <div><strong>Africa</strong><span>+3</span></div>
+              <div><strong>South America</strong><span>+2</span></div>
+              <div><strong>Australia</strong><span>+2</span></div>
+            </div>
+          </section>
+
+          <section class="rules-section">
+            <h3>🃏 CARDS &amp; TRADE-IN</h3>
+            <ul>
+              <li>Conquer at least <strong>1 territory</strong> to draw a card.</li>
+              <li>
+                Collect sets (<strong>3 of a kind</strong> or <strong>1 of each</strong>) to trade
+                for massive troops (4, 6, 8, 10...).
+              </li>
+            </ul>
+          </section>
+        </div>
       </div>
     </div>
 

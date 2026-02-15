@@ -20,9 +20,37 @@ const INACTIVITY_LIMIT = 300000;
 const TURN_LIMIT = 60000;
 let gameTimeout = null;
 let turnTimeout = null;
+let memoryMonitorInterval = null;
 let turnTimerEndsAt = null;
 let lastTurnTimerKey = null;
 let isMassKicking = false;
+const SERVER_EVENT_CAP = 50;
+const serverEventHistory = [];
+
+const pushCapped = (list, entry, cap = 50) => {
+  if (!Array.isArray(list)) return;
+  list.push(entry);
+  if (list.length > cap) {
+    list.shift();
+  }
+};
+
+const emitHandsToPlayers = () => {
+  game.players.forEach((player) => {
+    io.to(player.id).emit('update_hand', game.getHandState(player.id));
+  });
+};
+
+const emitCardEarnedIfAny = () => {
+  const reward = typeof game.consumeCardEarned === 'function' ? game.consumeCardEarned() : null;
+  if (!reward || !reward.playerId || !reward.card) return;
+  io.to(reward.playerId).emit('card_earned', {
+    uid: reward.card.uid,
+    type: reward.card.type,
+    territoryId: reward.card.territoryId || null,
+    territoryName: reward.card.territoryName || 'Unknown Territory',
+  });
+};
 
 const emitGameUpdateToAll = () => {
   pruneInactivePlayers();
@@ -32,6 +60,7 @@ const emitGameUpdateToAll = () => {
     turnTimerDurationMs: TURN_LIMIT,
     serverNowMs: Date.now(),
   });
+  emitHandsToPlayers();
 };
 
 const isBattlePending = () => pendingBattle !== null;
@@ -50,7 +79,7 @@ const pruneInactivePlayers = () => {
   if (game.players.length === 0 && game.phase !== 'LOBBY') {
     pendingBattle = null;
     game.resetGame();
-    clearInactivityTimer();
+    clearAllTimers();
     return true;
   }
 
@@ -62,7 +91,7 @@ const pruneInactivePlayers = () => {
       winnerName: winner.displayName,
       reason: 'last_player_standing',
     });
-    clearInactivityTimer();
+    clearAllTimers();
   }
   return true;
 };
@@ -77,6 +106,13 @@ const clearTurnTimer = () => {
     clearTimeout(turnTimeout);
     turnTimeout = null;
   }
+};
+
+const clearAllTimers = () => {
+  clearTurnTimer();
+  clearInactivityTimer();
+  turnTimerEndsAt = null;
+  lastTurnTimerKey = null;
 };
 
 const getTurnTimerKey = () => `${game.phase}:${game.currentPlayerIndex}`;
@@ -110,6 +146,7 @@ const refreshTurnTimer = ({ force = false } = {}) => {
 
     const timedOutPlayerId = game.getCurrentPlayer() ? game.getCurrentPlayer().id : null;
     game.nextPhase();
+    emitCardEarnedIfAny();
     io.emit('turn_skipped', { playerId: timedOutPlayerId });
     refreshTurnTimer({ force: true });
     emitGameUpdateToAll();
@@ -129,13 +166,13 @@ const resetInactivityTimer = () => {
   gameTimeout = setTimeout(() => {
     isMassKicking = true;
     pendingBattle = null;
+    pushCapped(serverEventHistory, { type: 'inactivity_kick', at: Date.now() }, SERVER_EVENT_CAP);
     io.emit('server_message', 'Kicked for inactivity');
+    clearAllTimers();
     game.resetGame();
-    refreshTurnTimer({ force: true });
     io.disconnectSockets(true);
     game.players = [];
     emitGameUpdateToAll();
-    clearInactivityTimer();
     isMassKicking = false;
   }, INACTIVITY_LIMIT);
 };
@@ -173,7 +210,7 @@ io.on('connection', (socket) => {
     }
 
     if (game.players.length === 0 || game.phase === 'LOBBY') {
-      clearInactivityTimer();
+      clearAllTimers();
       if (game.players.length === 0 && game.phase !== 'LOBBY') {
         pendingBattle = null;
         game.resetGame();
@@ -186,7 +223,7 @@ io.on('connection', (socket) => {
         winnerName: winner.displayName,
         reason: 'last_player_standing',
       });
-      clearInactivityTimer();
+      clearAllTimers();
     } else {
       resetInactivityTimer();
     }
@@ -237,6 +274,7 @@ io.on('connection', (socket) => {
 
     const started = game.startGame();
     if (!started) return;
+    clearAllTimers();
     resetInactivityTimer();
     refreshTurnTimer({ force: true });
     emitGameUpdateToAll();
@@ -277,6 +315,17 @@ io.on('connection', (socket) => {
       winnerId: result.winnerId || null,
       winnerName: result.winnerId ? game.getPlayer(result.winnerId)?.displayName || null : null,
     };
+    pushCapped(
+      serverEventHistory,
+      {
+        type: 'battle_resolved',
+        at: Date.now(),
+        battleId: pendingBattle.battleId,
+        attackerId: pendingBattle.attackerId,
+        defenderId: pendingBattle.defenderId,
+      },
+      SERVER_EVENT_CAP
+    );
     refreshTurnTimer();
 
     const readyPayload = {
@@ -297,6 +346,7 @@ io.on('connection', (socket) => {
     const fortified = game.fortify(socket.id, fromId, toId, count);
     if (fortified) {
       resetInactivityTimer();
+      emitCardEarnedIfAny();
     }
     refreshTurnTimer();
     emitGameUpdateToAll();
@@ -307,7 +357,28 @@ io.on('connection', (socket) => {
     const advanced = game.nextPhase();
     if (advanced) {
       resetInactivityTimer();
+      emitCardEarnedIfAny();
     }
+    refreshTurnTimer();
+    emitGameUpdateToAll();
+  });
+
+  socket.on('trade_cards', ({ cardUids } = {}) => {
+    if (isBattlePending()) return;
+    const trade = game.tradeCards(socket.id, cardUids);
+    if (!trade) {
+      socket.emit('error_message', 'Invalid card set. Select a valid set of 3 cards.');
+      return;
+    }
+
+    resetInactivityTimer();
+    io.emit('cards_traded', {
+      playerId: socket.id,
+      playerName: game.getPlayer(socket.id)?.displayName || null,
+      troopsAwarded: trade.troopsAwarded,
+      globalTradeInCount: trade.globalTradeInCount,
+      nextTradeValue: trade.nextTradeValue,
+    });
     refreshTurnTimer();
     emitGameUpdateToAll();
   });
@@ -350,7 +421,7 @@ io.on('connection', (socket) => {
 
   socket.on('return_to_lobby', () => {
     pendingBattle = null;
-    clearInactivityTimer();
+    clearAllTimers();
     game.resetGame();
     io.emit('game_reset', 'Partida reiniciada al lobby');
     refreshTurnTimer({ force: true });
@@ -362,6 +433,21 @@ io.on('connection', (socket) => {
   });
 });
 
+const startMemoryMonitor = () => {
+  if (memoryMonitorInterval) {
+    clearInterval(memoryMonitorInterval);
+    memoryMonitorInterval = null;
+  }
+  memoryMonitorInterval = setInterval(() => {
+    const used = process.memoryUsage().heapUsed / 1024 / 1024;
+    console.log(`The script uses approximately ${Math.round(used * 100) / 100} MB`);
+  }, 10 * 60 * 1000);
+  if (typeof memoryMonitorInterval.unref === 'function') {
+    memoryMonitorInterval.unref();
+  }
+};
+
 server.listen(3000, () => {
   console.log('Server listening on port 3000');
+  startMemoryMonitor();
 });

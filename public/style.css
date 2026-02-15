@@ -289,7 +289,7 @@ body {
 .player-stats {
   margin-top: 7px;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
 }
 
@@ -672,6 +672,373 @@ textarea {
   font-size: 14px;
 }
 
+.cards-hud-btn {
+  position: relative;
+  margin-top: 2px;
+  min-height: 36px;
+  border-color: rgba(255, 215, 120, 0.62);
+  background: linear-gradient(160deg, rgba(79, 59, 15, 0.86), rgba(41, 29, 8, 0.94));
+  font-family: 'Roboto Mono', monospace;
+  font-size: 12px;
+  letter-spacing: 1.1px;
+  box-shadow: 0 0 0 1px rgba(255, 218, 124, 0.2), 0 0 14px rgba(255, 208, 96, 0.18);
+}
+
+.rules-btn {
+  min-height: 36px;
+  margin-bottom: 8px;
+  border-color: rgba(117, 213, 255, 0.5);
+  background: linear-gradient(160deg, rgba(11, 52, 84, 0.92), rgba(8, 34, 58, 0.96));
+  font-family: 'Roboto Mono', monospace;
+  font-size: 12px;
+  letter-spacing: 1.2px;
+}
+
+.cards-hud-btn.urgent {
+  border-color: rgba(255, 224, 117, 0.8);
+  box-shadow:
+    0 0 0 1px rgba(255, 224, 117, 0.35),
+    0 0 20px rgba(255, 218, 96, 0.46);
+  animation: cardsPulse 0.95s ease-in-out infinite;
+}
+
+@keyframes cardsPulse {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.2);
+  }
+}
+
+.card-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1510;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(3, 8, 20, 0.7);
+  backdrop-filter: blur(6px);
+}
+
+.card-overlay.active {
+  display: flex;
+}
+
+.card-panel {
+  position: relative;
+  width: min(860px, calc(100vw - 28px));
+  border-radius: 16px;
+  border: 1px solid rgba(109, 204, 255, 0.45);
+  background: linear-gradient(165deg, rgba(13, 21, 35, 0.95), rgba(7, 13, 24, 0.96));
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05),
+    0 28px 65px rgba(0, 0, 0, 0.58),
+    0 0 30px rgba(37, 217, 255, 0.2);
+  padding: 18px 16px 14px;
+}
+
+.card-panel h3 {
+  margin: 0 34px 10px 0;
+  font-family: 'Roboto Mono', monospace;
+  letter-spacing: 1px;
+  font-size: 20px;
+}
+
+.card-overlay-subtitle {
+  color: #b7cce9;
+  font-size: 13px;
+  letter-spacing: 0.5px;
+  margin-bottom: 12px;
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(124px, 1fr));
+  gap: 10px;
+}
+
+.card-item {
+  min-height: 168px;
+  border-radius: 12px;
+  border: 1px solid rgba(220, 230, 245, 0.28);
+  background: linear-gradient(165deg, rgba(19, 25, 35, 0.97), rgba(9, 14, 23, 0.97));
+  color: #edf4ff;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  align-items: center;
+  justify-items: center;
+  padding: 9px 8px;
+  cursor: pointer;
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.card-item:hover {
+  transform: translateY(-3px);
+  border-color: rgba(170, 222, 255, 0.56);
+}
+
+.card-item.selected {
+  transform: translateY(-10px);
+  border-color: rgba(86, 255, 189, 0.9);
+  box-shadow:
+    0 0 0 1px rgba(86, 255, 189, 0.45),
+    0 0 22px rgba(86, 255, 189, 0.34);
+}
+
+.card-item.wild {
+  border-color: rgba(255, 215, 98, 0.6);
+}
+
+.card-type-pill {
+  font-family: 'Roboto Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: #acc6e8;
+}
+
+.card-icon {
+  font-size: 52px;
+  line-height: 1;
+  color: #f8fbff;
+  text-shadow: 0 0 20px rgba(255, 255, 255, 0.24);
+}
+
+.card-name {
+  text-align: center;
+  font-size: 11px;
+  color: #9eb6d6;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.card-overlay-footer {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.card-trade-ready {
+  background: linear-gradient(150deg, #0db57c, #0f8f68) !important;
+  border-color: rgba(111, 255, 196, 0.8) !important;
+  box-shadow: 0 12px 24px rgba(8, 171, 117, 0.3);
+}
+
+.card-reveal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1680;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(1, 5, 15, 0.82);
+  backdrop-filter: blur(8px);
+}
+
+.card-reveal-overlay.active {
+  display: flex;
+}
+
+.card-reveal-panel {
+  width: min(540px, calc(100vw - 28px));
+  border-radius: 18px;
+  border: 1px solid rgba(124, 215, 255, 0.45);
+  background: linear-gradient(165deg, rgba(14, 23, 37, 0.95), rgba(7, 13, 24, 0.97));
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 30px 70px rgba(0, 0, 0, 0.62),
+    0 0 34px rgba(38, 218, 255, 0.26);
+  padding: 22px 20px 18px;
+  text-align: center;
+}
+
+.card-reveal-title {
+  font-family: 'Roboto Mono', monospace;
+  font-size: 14px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #6fe9ff;
+  text-shadow: 0 0 16px rgba(102, 240, 255, 0.6);
+}
+
+.card-reveal-card {
+  margin: 14px auto 12px;
+  width: min(320px, 92%);
+  min-height: 238px;
+  transform-origin: center center;
+}
+
+.card-reveal-overlay.active .card-reveal-card {
+  animation: cardPop 620ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.card-reveal-card .card-icon {
+  font-size: 88px;
+}
+
+.card-reveal-card .card-name {
+  font-size: 14px;
+  letter-spacing: 1px;
+}
+
+.card-reveal-claim-btn {
+  min-height: 44px;
+}
+
+.rules-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1720;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(2, 7, 18, 0.78);
+  backdrop-filter: blur(7px);
+}
+
+.rules-modal.active {
+  display: flex;
+}
+
+.rules-panel {
+  position: relative;
+  width: min(760px, calc(100vw - 28px));
+  max-height: min(88vh, 900px);
+  border-radius: 16px;
+  border: 1px solid rgba(120, 194, 255, 0.42);
+  background: linear-gradient(165deg, rgba(13, 21, 35, 0.95), rgba(7, 13, 24, 0.96));
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 30px 70px rgba(0, 0, 0, 0.62),
+    0 0 30px rgba(37, 217, 255, 0.18);
+  padding: 18px 16px 14px;
+}
+
+.rules-panel h2 {
+  margin: 0 36px 10px 0;
+  font-family: 'Roboto Mono', monospace;
+  font-size: 21px;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: #e8f7ff;
+}
+
+.rules-content {
+  max-height: calc(88vh - 110px);
+  overflow-y: auto;
+  padding-right: 8px;
+}
+
+.rules-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.rules-content::-webkit-scrollbar-thumb {
+  background: rgba(116, 178, 238, 0.42);
+  border-radius: 999px;
+}
+
+.rules-section {
+  border: 1px solid rgba(129, 168, 212, 0.22);
+  border-radius: 12px;
+  background: rgba(6, 12, 22, 0.7);
+  padding: 12px;
+  margin-bottom: 10px;
+}
+
+.rules-section h3 {
+  margin: 0 0 8px;
+  font-family: 'Roboto Mono', monospace;
+  letter-spacing: 1px;
+  font-size: 14px;
+  color: #d8ecff;
+}
+
+.rules-section p,
+.rules-section li {
+  color: #c6d8f0;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.rules-section ol,
+.rules-section ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.rules-bonus-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.rules-bonus-grid div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: 1px solid rgba(126, 170, 221, 0.28);
+  border-radius: 9px;
+  background: rgba(8, 16, 30, 0.72);
+  padding: 8px 10px;
+  color: #d9ebff;
+}
+
+.rules-bonus-grid span {
+  font-family: 'Roboto Mono', monospace;
+  color: #7ce7ff;
+}
+
+@keyframes cardPop {
+  0% {
+    opacity: 0;
+    transform: scale(0.5) rotateY(-24deg);
+  }
+  62% {
+    opacity: 1;
+    transform: scale(1.08) rotateY(0deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotateY(0deg);
+  }
+}
+
+.center-reward-text {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1750;
+  font-family: 'Roboto Mono', monospace;
+  font-size: clamp(32px, 6vw, 58px);
+  letter-spacing: 2px;
+  color: #89ffd3;
+  text-shadow:
+    0 0 18px rgba(76, 255, 183, 0.72),
+    0 0 40px rgba(44, 224, 143, 0.5);
+  opacity: 0;
+  animation: centerRewardPop 900ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  pointer-events: none;
+}
+
+@keyframes centerRewardPop {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -40%) scale(0.88);
+  }
+  15% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -62%) scale(1.03);
+  }
+}
+
 #floating-text-layer {
   position: fixed;
   inset: 0;
@@ -1001,6 +1368,14 @@ textarea {
   }
 
   .quick-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .card-overlay-footer {
+    grid-template-columns: 1fr;
+  }
+
+  .rules-bonus-grid {
     grid-template-columns: 1fr;
   }
 
