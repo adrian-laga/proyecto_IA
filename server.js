@@ -1,5 +1,6 @@
 const express = require('express');
 const http = require('http');
+const https = require('https');
 const { Server } = require('socket.io');
 const RiskGame = require('./gameLogic');
 
@@ -12,6 +13,8 @@ const io = new Server(server, {
     origin: '*',
     methods: ['GET', 'POST'],
   },
+  pingInterval: 10000,
+  pingTimeout: 5000,
 });
 
 const game = new RiskGame();
@@ -21,10 +24,12 @@ const TURN_LIMIT = 60000;
 let gameTimeout = null;
 let turnTimeout = null;
 let memoryMonitorInterval = null;
+let selfPingInterval = null;
 let turnTimerEndsAt = null;
 let lastTurnTimerKey = null;
 let isMassKicking = false;
 const SERVER_EVENT_CAP = 50;
+const SELF_PING_INTERVAL = 10 * 60 * 1000;
 const serverEventHistory = [];
 
 const pushCapped = (list, entry, cap = 50) => {
@@ -447,7 +452,65 @@ const startMemoryMonitor = () => {
   }
 };
 
+const getSelfPingUrl = () =>
+  process.env.SELF_PING_URL || process.env.RENDER_EXTERNAL_URL || process.env.KEEP_ALIVE_URL || '';
+
+const runSelfPing = () => {
+  const rawUrl = getSelfPingUrl();
+  if (!rawUrl) return;
+
+  let targetUrl;
+  try {
+    targetUrl = new URL(rawUrl);
+  } catch (error) {
+    console.warn(`[self-ping] Invalid URL: ${rawUrl}`);
+    return;
+  }
+
+  const client = targetUrl.protocol === 'https:' ? https : http;
+  const request = client.get(
+    targetUrl,
+    {
+      timeout: 10000,
+      headers: {
+        'User-Agent': 'riskgame-self-ping/1.0',
+      },
+    },
+    (response) => {
+      response.resume();
+    }
+  );
+
+  request.on('timeout', () => {
+    request.destroy(new Error('timeout'));
+  });
+
+  request.on('error', (error) => {
+    console.warn(`[self-ping] Request failed: ${error.message}`);
+  });
+};
+
+const startSelfPing = () => {
+  if (selfPingInterval) {
+    clearInterval(selfPingInterval);
+    selfPingInterval = null;
+  }
+
+  const targetUrl = getSelfPingUrl();
+  if (!targetUrl) {
+    console.log('[self-ping] Disabled (no SELF_PING_URL / RENDER_EXTERNAL_URL configured)');
+    return;
+  }
+
+  runSelfPing();
+  selfPingInterval = setInterval(runSelfPing, SELF_PING_INTERVAL);
+  if (typeof selfPingInterval.unref === 'function') {
+    selfPingInterval.unref();
+  }
+};
+
 server.listen(3000, () => {
   console.log('Server listening on port 3000');
   startMemoryMonitor();
+  startSelfPing();
 });

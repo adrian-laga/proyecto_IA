@@ -13,49 +13,59 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <div class="page">
+    <div id="game-container">
       <header class="header">
         <h1>AI Risk Game</h1>
       </header>
 
       <main class="main">
         <section class="board">
-          <canvas id="gameMap" width="1000" height="600">Your browser does not support canvas.</canvas>
+          <div class="map-shell">
+            <canvas id="gameMap" width="1000" height="600">Your browser does not support canvas.</canvas>
+            <div id="map-controls" class="map-controls">
+              <button id="map-zoom-in" class="map-control-btn" type="button" aria-label="Zoom In">+</button>
+              <button id="map-zoom-out" class="map-control-btn" type="button" aria-label="Zoom Out">-</button>
+              <button id="map-reset" class="map-control-btn map-control-reset" type="button">Reset</button>
+            </div>
+            <div id="battle-log-panel" class="battle-log-panel collapsed">
+              <button id="battle-log-toggle" class="battle-log-toggle" type="button">LOG</button>
+              <div id="battle-log-content" class="battle-log-content" aria-hidden="true">
+                <textarea id="gameLog" rows="8" readonly></textarea>
+              </div>
+            </div>
+            <div id="territory-tooltip" class="territory-tooltip" aria-hidden="true"></div>
+          </div>
         </section>
 
         <aside id="sidebar" class="sidebar">
-          <section class="hud-section phase-section tactical-header">
-            <div class="section-title">Battle Command</div>
-            <div class="phase-row">
-              <div id="currentPhase" class="phase-badge">LOBBY</div>
-              <div id="currentPlayer" class="current-player-label">Waiting for game...</div>
-            </div>
-            <button id="btn-cards" class="btn btn-secondary cards-hud-btn" type="button">
-              CARDS (0)
-            </button>
-            <div id="turn-timer-bar" class="turn-timer-bar hidden" aria-hidden="true">
-              <div id="turn-timer-fill" class="turn-timer-fill"></div>
-              <div id="turn-timer-label" class="turn-timer-label">TURN TIMER</div>
-            </div>
-          </section>
+          <div id="top-panel" class="top-panel">
+            <section class="hud-section phase-section tactical-header">
+              <div class="section-title">Battle Command</div>
+              <div class="phase-row">
+                <div id="currentPhase" class="phase-badge">LOBBY</div>
+                <div id="currentPlayer" class="current-player-label">Waiting for game...</div>
+              </div>
+              <button id="btn-cards" class="btn btn-secondary cards-hud-btn" type="button">
+                CARDS (0)
+              </button>
+              <div id="turn-timer-bar" class="turn-timer-bar hidden" aria-hidden="true">
+                <div id="turn-timer-fill" class="turn-timer-fill"></div>
+                <div id="turn-timer-label" class="turn-timer-label">TURN TIMER</div>
+              </div>
+            </section>
 
-          <section class="hud-section players-section">
-            <div class="section-title">Commanders</div>
-            <div id="playerList" class="player-cards"></div>
-          </section>
+            <section class="hud-section players-section">
+              <div class="section-title">Commanders</div>
+              <div id="playerList" class="player-cards"></div>
+            </section>
+          </div>
 
-          <section class="hud-section actions-section">
-            <div class="section-title">Tactical Actions</div>
+          <div id="bottom-controls" class="bottom-controls">
             <button id="rules-btn" class="btn btn-secondary rules-btn hidden" type="button">
               HOW TO PLAY
             </button>
             <div id="dynamic-actions-container"></div>
-          </section>
-
-          <section class="hud-section log-section">
-            <div class="section-title">Battle Feed</div>
-            <textarea id="gameLog" rows="8" readonly></textarea>
-          </section>
+          </div>
         </aside>
       </main>
     </div>
@@ -195,6 +205,7 @@
     <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
 
     <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
     <script src="client.js"></script>
   </body>
 </html>

@@ -1,4 +1,11 @@
-const socket = io({ reconnection: false });
+const socket = io({
+  reconnection: true,
+  reconnectionAttempts: 20,
+  reconnectionDelay: 2000,
+  reconnectionDelayMax: 5000,
+  timeout: 20000,
+  autoConnect: true,
+});
 
 const svgNamespace = 'http://www.w3.org/2000/svg';
 const boardEl = document.querySelector('.board');
@@ -11,7 +18,7 @@ const createSvgMap = () => {
   svgEl.setAttribute('viewBox', '0 0 1000 600');
   svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
   svgEl.style.width = '100%';
-  svgEl.style.height = 'auto';
+  svgEl.style.height = '100%';
   svgEl.style.display = 'block';
   svgEl.style.background = '#101217';
   svgEl.style.borderRadius = '12px';
@@ -69,6 +76,13 @@ const cardRevealClaimBtnEl = document.getElementById('card-reveal-claim-btn');
 const rulesBtnEl = document.getElementById('rules-btn');
 const rulesModalEl = document.getElementById('rules-modal');
 const rulesCloseBtnEl = document.getElementById('rules-close-btn');
+const mapZoomInBtnEl = document.getElementById('map-zoom-in');
+const mapZoomOutBtnEl = document.getElementById('map-zoom-out');
+const mapResetBtnEl = document.getElementById('map-reset');
+const battleLogPanelEl = document.getElementById('battle-log-panel');
+const battleLogToggleEl = document.getElementById('battle-log-toggle');
+const battleLogContentEl = document.getElementById('battle-log-content');
+const territoryTooltipEl = document.getElementById('territory-tooltip');
 
 const PLAYER_COLORS = ['#3498db', '#e74c3c', '#2ecc71', '#f1c40f'];
 const UNOWNED_COLOR = '#2b2f36';
@@ -136,7 +150,6 @@ let battleContext = null;
 let rollRequested = false;
 let actionCountValue = 1;
 let hasReceivedInitialState = false;
-let floatingLayerEl = null;
 let pendingFloatingEvents = [];
 let hasJoinedGame = false;
 let pendingNickname = '';
@@ -147,6 +160,7 @@ let turnTimerEndMs = null;
 let turnTimerDurationMs = 0;
 let intentionalLeave = false;
 let kickedByInactivity = false;
+let reconnectingInProgress = false;
 let neutralOwnerId = 'neutral';
 let myHand = [];
 let cardSelection = new Set();
@@ -155,6 +169,8 @@ let nextTradeValue = 4;
 let globalTradeInCount = 0;
 let cardRevealQueue = [];
 let cardRevealActive = false;
+let mapPanZoomInstance = null;
+let territoryTooltipVisible = false;
 
 const SoundManager = {
   ctx: null,
@@ -649,42 +665,16 @@ const startTurnTimerLoop = () => {
   window.requestAnimationFrame(tick);
 };
 
-const ensureFloatingLayer = () => {
-  if (floatingLayerEl) return floatingLayerEl;
-  floatingLayerEl = document.createElement('div');
-  floatingLayerEl.id = 'floating-text-layer';
-  document.body.appendChild(floatingLayerEl);
-  return floatingLayerEl;
-};
-
-const getTerritoryCenter = (territoryId) => {
-  const graphic = territoryGraphics[territoryId];
-  if (!graphic) return null;
-  const x = Number(graphic.centerX ?? graphic.textX);
-  const y = Number(graphic.centerY ?? graphic.textY);
-  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-  return { x, y };
-};
-
-const toScreenPoint = (x, y) => {
-  if (!svg || !svg.createSVGPoint) return null;
-  const point = svg.createSVGPoint();
-  point.x = x;
-  point.y = y;
-  const ctm = svg.getScreenCTM();
-  if (!ctm) return null;
-  return point.matrixTransform(ctm);
-};
-
 const showFloatingText = (territoryId, amount, type = 'gain') => {
   const numericAmount = Number(amount);
   if (!Number.isFinite(numericAmount) || numericAmount === 0) return;
-  const center = getTerritoryCenter(territoryId);
-  if (!center) return;
-  const screenPoint = toScreenPoint(center.x, center.y);
-  if (!screenPoint) return;
+  const territoryElement = document.getElementById(territoryId);
+  if (!territoryElement || typeof territoryElement.getBoundingClientRect !== 'function') return;
 
-  const layer = ensureFloatingLayer();
+  const rect = territoryElement.getBoundingClientRect();
+  const centerX = rect.left + rect.width / 2;
+  const centerY = rect.top + rect.height / 2;
+
   const isDamage = type === 'damage' || numericAmount < 0;
   const value = Math.abs(Math.trunc(numericAmount));
   if (value < 1) return;
@@ -692,15 +682,19 @@ const showFloatingText = (territoryId, amount, type = 'gain') => {
   const textEl = document.createElement('div');
   textEl.className = `floating-text ${isDamage ? 'damage' : 'gain'}`;
   textEl.textContent = `${isDamage ? '-' : '+'}${value}`;
-  textEl.style.left = `${screenPoint.x}px`;
-  textEl.style.top = `${screenPoint.y}px`;
-  layer.appendChild(textEl);
+  textEl.style.position = 'fixed';
+  textEl.style.left = `${centerX}px`;
+  textEl.style.top = `${centerY}px`;
+  textEl.style.transform = 'translate(-50%, -50%)';
+  textEl.style.zIndex = '9999';
+  textEl.style.pointerEvents = 'none';
+  document.body.appendChild(textEl);
 
   const remove = () => {
     if (textEl.parentNode) textEl.parentNode.removeChild(textEl);
   };
   textEl.addEventListener('animationend', remove, { once: true });
-  window.setTimeout(remove, 1400);
+  window.setTimeout(remove, 2000);
 };
 
 const getTroopDeltaEvents = (previousMap, nextMap) => {
@@ -756,7 +750,7 @@ const playBattleResultSound = (payload) => {
 const appendLog = (message) => {
   if (!gameLog || !message) return;
   gameLog.value = `${message}\n${gameLog.value}`.trimEnd();
-  gameLog.scrollTop = gameLog.scrollHeight;
+  gameLog.scrollTop = 0;
 };
 
 const getOwnerColor = (ownerId) => {
@@ -783,10 +777,88 @@ const lightenHex = (hex, amount) => {
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 };
 
+const toggleBattleLog = (forceOpen = null) => {
+  if (!battleLogPanelEl || !battleLogContentEl) return;
+  const shouldOpen =
+    forceOpen === null ? battleLogPanelEl.classList.contains('collapsed') : Boolean(forceOpen);
+  battleLogPanelEl.classList.toggle('collapsed', !shouldOpen);
+  battleLogContentEl.setAttribute('aria-hidden', shouldOpen ? 'false' : 'true');
+};
+
+const getTerritoryTooltipData = (territoryId) => {
+  const territory = mapData.find((item) => item.id === territoryId);
+  if (!territory) return null;
+  const ownerId = territory.ownerId;
+  const ownerName = ownerId
+    ? ownerId === neutralOwnerId
+      ? 'Neutral'
+      : formatPlayerLabel(ownerId, players)
+    : 'Unclaimed';
+  const troops = Number(territory.troops) || 0;
+  const name = territory.name || territory.id;
+  const continent = territory.continent || 'Unknown';
+  return { name, ownerName, troops, continent };
+};
+
+const hideTerritoryTooltip = () => {
+  territoryTooltipVisible = false;
+  if (!territoryTooltipEl) return;
+  territoryTooltipEl.classList.remove('visible');
+  territoryTooltipEl.setAttribute('aria-hidden', 'true');
+};
+
+const showTerritoryTooltip = (territoryId, event) => {
+  if (!territoryTooltipEl || !event) return;
+  const info = getTerritoryTooltipData(territoryId);
+  if (!info) return;
+  territoryTooltipEl.innerHTML = `<strong>${info.name}</strong>Owner: ${info.ownerName}<br/>Troops: ${info.troops}<br/>Continent: ${info.continent}`;
+  territoryTooltipEl.classList.add('visible');
+  territoryTooltipEl.setAttribute('aria-hidden', 'false');
+  territoryTooltipVisible = true;
+  moveTerritoryTooltip(event);
+};
+
+const moveTerritoryTooltip = (event) => {
+  if (!territoryTooltipEl || !territoryTooltipVisible || !event) return;
+  const pad = 14;
+  const x = event.clientX + 16;
+  const y = event.clientY + 16;
+  const width = territoryTooltipEl.offsetWidth || 220;
+  const height = territoryTooltipEl.offsetHeight || 80;
+  const maxX = window.innerWidth - width - pad;
+  const maxY = window.innerHeight - height - pad;
+  territoryTooltipEl.style.left = `${Math.max(pad, Math.min(x, maxX))}px`;
+  territoryTooltipEl.style.top = `${Math.max(pad, Math.min(y, maxY))}px`;
+};
+
+const initMapPanZoom = () => {
+  if (!svg || mapPanZoomInstance || typeof svgPanZoom !== 'function') return;
+  mapPanZoomInstance = svgPanZoom(svg, {
+    zoomEnabled: true,
+    controlIconsEnabled: false,
+    fit: true,
+    center: true,
+    minZoom: 0.7,
+    maxZoom: 8,
+    mouseWheelZoomEnabled: true,
+    panEnabled: true,
+    dblClickZoomEnabled: false,
+    preventMouseEventsDefault: false,
+  });
+};
+
+const resetMapView = () => {
+  if (!mapPanZoomInstance) return;
+  mapPanZoomInstance.resetZoom();
+  mapPanZoomInstance.fit();
+  mapPanZoomInstance.center();
+};
+
 const ensureSvgLayers = () => {
   if (!svg || svgInitialized) return;
   svgInitialized = true;
   svg.innerHTML = '';
+  svg.addEventListener('mouseleave', hideTerritoryTooltip);
 
   const defs = document.createElementNS(svgNamespace, 'defs');
   const filter = document.createElementNS(svgNamespace, 'filter');
@@ -806,6 +878,7 @@ const ensureSvgLayers = () => {
 
   Object.entries(territoryGraphics).forEach(([id, config]) => {
     const pathEl = document.createElementNS(svgNamespace, 'path');
+    pathEl.setAttribute('id', id);
     pathEl.setAttribute('d', config.path);
     pathEl.setAttribute('data-id', id);
     pathEl.setAttribute('stroke', '#0b0b0b');
@@ -822,9 +895,14 @@ const ensureSvgLayers = () => {
       pathEl.setAttribute('fill', lightenHex(base, 25));
     });
 
+    pathEl.addEventListener('mousemove', (event) => {
+      showTerritoryTooltip(id, event);
+    });
+
     pathEl.addEventListener('mouseleave', () => {
       const base = pathEl.dataset.baseFill || UNOWNED_COLOR;
       pathEl.setAttribute('fill', base);
+      hideTerritoryTooltip();
     });
 
     pathGroup.appendChild(pathEl);
@@ -980,6 +1058,7 @@ const drawMap = (newMapState = null) => {
 
   ensureSvgLayers();
   fitViewBoxToMap();
+  initMapPanZoom();
   updatePathStyles();
   updateLabels();
 };
@@ -1766,6 +1845,32 @@ if (cardsHudBtnEl) {
   });
 }
 
+if (battleLogToggleEl) {
+  battleLogToggleEl.addEventListener('click', () => {
+    toggleBattleLog();
+  });
+}
+
+if (mapZoomInBtnEl) {
+  mapZoomInBtnEl.addEventListener('click', () => {
+    if (!mapPanZoomInstance) return;
+    mapPanZoomInstance.zoomBy(1.2);
+  });
+}
+
+if (mapZoomOutBtnEl) {
+  mapZoomOutBtnEl.addEventListener('click', () => {
+    if (!mapPanZoomInstance) return;
+    mapPanZoomInstance.zoomBy(0.8);
+  });
+}
+
+if (mapResetBtnEl) {
+  mapResetBtnEl.addEventListener('click', () => {
+    resetMapView();
+  });
+}
+
 if (cardOverlayCloseEl) {
   cardOverlayCloseEl.addEventListener('click', () => {
     closeCardOverlay();
@@ -1826,6 +1931,13 @@ window.addEventListener('keydown', (event) => {
   closeRules();
 });
 
+window.addEventListener('resize', () => {
+  if (!mapPanZoomInstance) return;
+  mapPanZoomInstance.resize();
+  mapPanZoomInstance.fit();
+  mapPanZoomInstance.center();
+});
+
 if (returnLobbyBtnEl) {
   returnLobbyBtnEl.addEventListener('click', () => {
     hideVictoryOverlay();
@@ -1838,11 +1950,23 @@ openWelcomeOverlay();
 refreshCardsHudButton();
 
 socket.on('connect', () => {
+  reconnectingInProgress = false;
   if (hasJoinedGame && pendingNickname) {
     socket.emit('join_game', { displayName: pendingNickname });
   } else if (!hasJoinedGame) {
     openWelcomeOverlay();
   }
+});
+
+socket.io.on('reconnect_attempt', () => {
+  if (intentionalLeave || kickedByInactivity) return;
+  reconnectingInProgress = true;
+});
+
+socket.io.on('reconnect', () => {
+  if (intentionalLeave || kickedByInactivity) return;
+  reconnectingInProgress = false;
+  showToast('Connection restored!', 'success');
 });
 
 socket.on('error_message', (message) => {
@@ -2105,5 +2229,8 @@ socket.on('disconnect', (reason) => {
     window.alert('Desconectado por inactividad. Recarga para jugar de nuevo');
     return;
   }
-  showToast('Conexion cerrada. Recarga para volver a entrar.', 'error');
+  if (!reconnectingInProgress) {
+    showToast('Connection lost. Reconnecting...', 'error');
+  }
+  reconnectingInProgress = true;
 });
