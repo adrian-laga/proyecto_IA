@@ -203,9 +203,11 @@ class RiskGame {
     if (player && Array.isArray(player.hand) && player.hand.length) {
       this.deck.discard(player.hand);
     }
+    this.releasePlayerReferences(player);
 
     if (this.phase !== 'LOBBY') {
       this.neutralizePlayerTerritories(socketId);
+      delete this.players[index];
       this.players.splice(index, 1);
       if (this.players.length > 0) {
         if (index < this.currentPlayerIndex) {
@@ -219,8 +221,23 @@ class RiskGame {
       return true;
     }
 
+    delete this.players[index];
     this.players.splice(index, 1);
     return true;
+  }
+
+  releasePlayerReferences(player) {
+    if (!player || typeof player !== 'object') return;
+    if (Array.isArray(player.hand)) {
+      player.hand.length = 0;
+    }
+    player.pool = 0;
+    player.troops = 0;
+    player.ready = false;
+    player.conqueredThisTurn = false;
+    player.displayName = '';
+    player.color = '';
+    player.id = '';
   }
 
   neutralizePlayerTerritories(playerId) {
@@ -730,6 +747,7 @@ class RiskGame {
     this.pendingCardEarned = null;
 
     // Drop old references to help GC reclaim previous match state.
+    this.players.forEach((player) => this.releasePlayerReferences(player));
     this.map = [];
     this.players = [];
 

@@ -184,6 +184,10 @@ const resetInactivityTimer = () => {
 
 io.on('connection', (socket) => {
   console.log('New player connected');
+  const releaseSocketReferences = () => {
+    socket.removeAllListeners();
+    socket.data = {};
+  };
 
   const handlePlayerExit = () => {
     if (socket.data.cleanedUp) return;
@@ -191,6 +195,7 @@ io.on('connection', (socket) => {
 
     if (isMassKicking) {
       game.removePlayer(socket.id);
+      releaseSocketReferences();
       return;
     }
 
@@ -211,6 +216,7 @@ io.on('connection', (socket) => {
         refreshTurnTimer({ force: true });
         emitGameUpdateToAll();
       }
+      releaseSocketReferences();
       return;
     }
 
@@ -235,6 +241,7 @@ io.on('connection', (socket) => {
 
     refreshTurnTimer({ force: true });
     emitGameUpdateToAll();
+    releaseSocketReferences();
   };
 
   socket.on('join_game', ({ displayName } = {}) => {
