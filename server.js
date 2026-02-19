@@ -18,9 +18,11 @@ const io = new Server(server, {
 });
 
 const game = new RiskGame();
-let pendingBattle = null;
+let activeBattle = null;
+let activeBattleTimeout = null;
 const INACTIVITY_LIMIT = 300000;
 const TURN_LIMIT = 60000;
+const BATTLE_COMMIT_LIMIT = 15000;
 let gameTimeout = null;
 let turnTimeout = null;
 let memoryMonitorInterval = null;
@@ -68,7 +70,125 @@ const emitGameUpdateToAll = () => {
   emitHandsToPlayers();
 };
 
-const isBattlePending = () => pendingBattle !== null;
+const isBattlePending = () => activeBattle !== null;
+
+const clearActiveBattleTimeout = () => {
+  if (activeBattleTimeout) {
+    clearTimeout(activeBattleTimeout);
+    activeBattleTimeout = null;
+  }
+};
+
+const clearActiveBattle = () => {
+  clearActiveBattleTimeout();
+  activeBattle = null;
+};
+
+const isSocketConnected = (socketId) => Boolean(socketId) && io.sockets.sockets.has(socketId);
+
+const emitCombatArenaOpened = () => {
+  if (!activeBattle) return;
+  io.emit('combat_arena_opened', {
+    battleId: activeBattle.battleId,
+    attackerId: activeBattle.attackerId,
+    defenderId: activeBattle.defenderId,
+    attackerName: game.getPlayer(activeBattle.attackerId)?.displayName || null,
+    defenderName: game.getPlayer(activeBattle.defenderId)?.displayName || null,
+    fromId: activeBattle.fromId,
+    toId: activeBattle.toId,
+    fromName: activeBattle.fromName,
+    toName: activeBattle.toName,
+    maxAttackerDice: activeBattle.maxAttackerDice,
+    maxDefenderDice: activeBattle.maxDefenderDice,
+    attackerRolled: activeBattle.attackerRolled,
+    defenderRolled: activeBattle.defenderRolled,
+    defenderAuto: activeBattle.defenderAuto,
+  });
+};
+
+const emitCombatArenaUpdate = () => {
+  if (!activeBattle) return;
+  io.emit('combat_arena_update', {
+    battleId: activeBattle.battleId,
+    attackerRolled: activeBattle.attackerRolled,
+    defenderRolled: activeBattle.defenderRolled,
+  });
+};
+
+const resolveActiveBattle = ({ reason = 'both_committed' } = {}) => {
+  if (!activeBattle) return;
+  const battle = activeBattle;
+  clearActiveBattle();
+
+  const attackerDiceCount = battle.attackerDice || battle.maxAttackerDice;
+  const defenderDiceCount = battle.defenderDice || battle.maxDefenderDice;
+  const result = game.resolveAttack(
+    battle.attackerId,
+    battle.fromId,
+    battle.toId,
+    attackerDiceCount,
+    defenderDiceCount
+  );
+  if (!result) {
+    io.emit('battle_cancelled');
+    refreshTurnTimer({ force: true });
+    emitGameUpdateToAll();
+    return;
+  }
+
+  const payload = {
+    battleId: game.lastAttack ? game.lastAttack.id : battle.battleId,
+    attackerId: battle.attackerId,
+    defenderId: battle.defenderId,
+    fromId: battle.fromId,
+    toId: battle.toId,
+    attackerDice: result.attackerDice,
+    defenderDice: result.defenderDice,
+    newMapState: game.getState().map,
+    attackTroopCount: result.attackTroopCount,
+    defendTroopCount: result.defendTroopCount,
+    attackerLosses: result.attackerLosses,
+    defenderLosses: result.defenderLosses,
+    conquered: result.conquered,
+    winnerId: result.winnerId || null,
+    winnerName: result.winnerId ? game.getPlayer(result.winnerId)?.displayName || null : null,
+    resolutionReason: reason,
+  };
+  pushCapped(
+    serverEventHistory,
+    {
+      type: 'battle_resolved',
+      at: Date.now(),
+      battleId: payload.battleId,
+      attackerId: payload.attackerId,
+      defenderId: payload.defenderId,
+      reason,
+    },
+    SERVER_EVENT_CAP
+  );
+
+  resetInactivityTimer();
+  io.emit('battle_result', payload);
+
+  const winnerPayload = payload.winnerId
+    ? {
+        winnerId: payload.winnerId,
+        winnerName: payload.winnerName,
+      }
+    : null;
+
+  refreshTurnTimer({ force: true });
+  emitGameUpdateToAll();
+  if (winnerPayload) {
+    io.emit('game_over', winnerPayload);
+  }
+};
+
+const maybeResolveActiveBattle = (reason) => {
+  if (!activeBattle) return;
+  if (!activeBattle.attackerRolled || !activeBattle.defenderRolled) return;
+  resolveActiveBattle({ reason });
+};
 
 const pruneInactivePlayers = () => {
   const activeSockets = io.sockets.sockets;
@@ -77,12 +197,24 @@ const pruneInactivePlayers = () => {
     .filter((playerId) => !activeSockets.has(playerId));
 
   if (!staleIds.length) return false;
+  if (activeBattle) {
+    if (staleIds.includes(activeBattle.attackerId)) {
+      clearActiveBattle();
+      io.emit('battle_cancelled');
+    } else if (staleIds.includes(activeBattle.defenderId)) {
+      activeBattle.defenderRolled = true;
+      activeBattle.defenderDice = activeBattle.maxDefenderDice;
+      activeBattle.defenderAuto = true;
+      emitCombatArenaUpdate();
+      maybeResolveActiveBattle('defender_disconnected');
+    }
+  }
   staleIds.forEach((playerId) => {
     game.removePlayer(playerId);
   });
 
   if (game.players.length === 0 && game.phase !== 'LOBBY') {
-    pendingBattle = null;
+    clearActiveBattle();
     game.resetGame();
     clearAllTimers();
     return true;
@@ -90,6 +222,7 @@ const pruneInactivePlayers = () => {
 
   if (game.phase !== 'LOBBY' && game.players.length === 1 && !game.winnerId) {
     const winner = game.players[0];
+    clearActiveBattle();
     game.winnerId = winner.id;
     io.emit('game_over', {
       winnerId: winner.id,
@@ -116,6 +249,7 @@ const clearTurnTimer = () => {
 const clearAllTimers = () => {
   clearTurnTimer();
   clearInactivityTimer();
+  clearActiveBattleTimeout();
   turnTimerEndsAt = null;
   lastTurnTimerKey = null;
 };
@@ -170,7 +304,7 @@ const resetInactivityTimer = () => {
   clearInactivityTimer();
   gameTimeout = setTimeout(() => {
     isMassKicking = true;
-    pendingBattle = null;
+    clearActiveBattle();
     pushCapped(serverEventHistory, { type: 'inactivity_kick', at: Date.now() }, SERVER_EVENT_CAP);
     io.emit('server_message', 'Kicked for inactivity');
     clearAllTimers();
@@ -200,13 +334,16 @@ io.on('connection', (socket) => {
     }
 
     let clearedPendingBattle = false;
-    if (
-      pendingBattle &&
-      (socket.id === pendingBattle.attackerId || socket.id === pendingBattle.defenderId)
-    ) {
-      pendingBattle = null;
+    if (activeBattle && socket.id === activeBattle.attackerId) {
+      clearActiveBattle();
       clearedPendingBattle = true;
       io.emit('battle_cancelled');
+    } else if (activeBattle && socket.id === activeBattle.defenderId) {
+      activeBattle.defenderRolled = true;
+      activeBattle.defenderDice = activeBattle.maxDefenderDice;
+      activeBattle.defenderAuto = true;
+      emitCombatArenaUpdate();
+      maybeResolveActiveBattle('defender_disconnected');
     }
 
     const removed = game.removePlayer(socket.id);
@@ -223,11 +360,12 @@ io.on('connection', (socket) => {
     if (game.players.length === 0 || game.phase === 'LOBBY') {
       clearAllTimers();
       if (game.players.length === 0 && game.phase !== 'LOBBY') {
-        pendingBattle = null;
+        clearActiveBattle();
         game.resetGame();
       }
     } else if (game.phase !== 'LOBBY' && game.players.length === 1 && !game.winnerId) {
       const winner = game.players[0];
+      clearActiveBattle();
       game.winnerId = winner.id;
       io.emit('game_over', {
         winnerId: winner.id,
@@ -302,55 +440,74 @@ io.on('connection', (socket) => {
     emitGameUpdateToAll();
   });
 
-  socket.on('attack', ({ fromId, toId, dice }) => {
+  socket.on('initiate_attack', ({ fromId, toId } = {}) => {
     if (isBattlePending()) return;
+    const prepared = game.prepareAttack(socket.id, fromId, toId);
+    if (!prepared) return;
 
-    const targetTerritory = game.getTerritory(toId);
-    const defenderId = targetTerritory ? targetTerritory.ownerId : null;
-    const result = game.attack(socket.id, fromId, toId, dice);
-    if (!result) {
-      return;
-    }
-    resetInactivityTimer();
-
-    pendingBattle = {
-      battleId: game.lastAttack ? game.lastAttack.id : null,
+    activeBattle = {
+      battleId: `battle_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       attackerId: socket.id,
-      defenderId,
-      attackerDice: result.attackerDice,
-      defenderDice: result.defenderDice,
-      newMapState: game.getState().map,
-      attackTroopCount: result.attackTroopCount,
-      attackerLosses: result.attackerLosses,
-      defenderLosses: result.defenderLosses,
-      conquered: result.conquered,
-      winnerId: result.winnerId || null,
-      winnerName: result.winnerId ? game.getPlayer(result.winnerId)?.displayName || null : null,
+      defenderId: prepared.defenderId,
+      fromId: prepared.fromId,
+      toId: prepared.toId,
+      fromName: prepared.fromTerritoryName,
+      toName: prepared.toTerritoryName,
+      maxAttackerDice: prepared.maxAttackerDice,
+      maxDefenderDice: prepared.maxDefenderDice,
+      attackerRolled: false,
+      defenderRolled: false,
+      attackerDice: 0,
+      defenderDice: 0,
+      defenderAuto: false,
     };
+
     pushCapped(
       serverEventHistory,
       {
-        type: 'battle_resolved',
+        type: 'battle_opened',
         at: Date.now(),
-        battleId: pendingBattle.battleId,
-        attackerId: pendingBattle.attackerId,
-        defenderId: pendingBattle.defenderId,
+        battleId: activeBattle.battleId,
+        attackerId: activeBattle.attackerId,
+        defenderId: activeBattle.defenderId,
       },
       SERVER_EVENT_CAP
     );
-    refreshTurnTimer();
 
-    const readyPayload = {
-      battleId: pendingBattle.battleId,
-      attackerId: pendingBattle.attackerId,
-      defenderId: pendingBattle.defenderId,
-      fromId,
-      toId,
-    };
-    io.to(pendingBattle.attackerId).emit('battle_ready', readyPayload);
-    if (pendingBattle.defenderId && pendingBattle.defenderId !== pendingBattle.attackerId) {
-      io.to(pendingBattle.defenderId).emit('battle_ready', readyPayload);
+    const defenderPlayer = game.getPlayer(activeBattle.defenderId);
+    const shouldAutoDefender =
+      activeBattle.defenderId === 'neutral' ||
+      !defenderPlayer ||
+      !isSocketConnected(activeBattle.defenderId);
+    if (shouldAutoDefender) {
+      activeBattle.defenderRolled = true;
+      activeBattle.defenderDice = activeBattle.maxDefenderDice;
+      activeBattle.defenderAuto = true;
     }
+
+    emitCombatArenaOpened();
+    emitCombatArenaUpdate();
+    refreshTurnTimer({ force: true });
+
+    clearActiveBattleTimeout();
+    activeBattleTimeout = setTimeout(() => {
+      if (!activeBattle) return;
+      if (!activeBattle.attackerRolled) {
+        activeBattle.attackerRolled = true;
+        activeBattle.attackerDice = activeBattle.maxAttackerDice;
+      }
+      if (!activeBattle.defenderRolled) {
+        activeBattle.defenderRolled = true;
+        activeBattle.defenderDice = activeBattle.maxDefenderDice;
+        activeBattle.defenderAuto = true;
+      }
+      emitCombatArenaUpdate();
+      resolveActiveBattle({ reason: 'timeout_autoroll' });
+    }, BATTLE_COMMIT_LIMIT);
+    if (typeof activeBattleTimeout.unref === 'function') {
+      activeBattleTimeout.unref();
+    }
+    maybeResolveActiveBattle('defender_auto');
   });
 
   socket.on('fortify', ({ fromId, toId, count }) => {
@@ -395,44 +552,30 @@ io.on('connection', (socket) => {
     emitGameUpdateToAll();
   });
 
-  socket.on('trigger_roll', ({ battleId }) => {
-    if (!pendingBattle) return;
-    if (socket.id !== pendingBattle.attackerId) return;
-    if (battleId && pendingBattle.battleId && battleId !== pendingBattle.battleId) return;
+  socket.on('commit_roll', ({ battleId, dice } = {}) => {
+    if (!activeBattle) return;
+    if (battleId && activeBattle.battleId && battleId !== activeBattle.battleId) return;
+    const requestedDice = Number(dice);
+    if (!Number.isFinite(requestedDice)) return;
 
-    resetInactivityTimer();
-    io.emit('battle_anim', {
-      battleId: pendingBattle.battleId,
-      attackerId: pendingBattle.attackerId,
-      defenderId: pendingBattle.defenderId,
-      attackerDice: pendingBattle.attackerDice,
-      defenderDice: pendingBattle.defenderDice,
-      newMapState: pendingBattle.newMapState,
-      attackTroopCount: pendingBattle.attackTroopCount,
-      attackerLosses: pendingBattle.attackerLosses,
-      defenderLosses: pendingBattle.defenderLosses,
-      conquered: pendingBattle.conquered,
-      winnerId: pendingBattle.winnerId,
-      winnerName: pendingBattle.winnerName,
-    });
-
-    const winnerPayload = pendingBattle.winnerId
-      ? {
-          winnerId: pendingBattle.winnerId,
-          winnerName: pendingBattle.winnerName,
-        }
-      : null;
-
-    pendingBattle = null;
-    refreshTurnTimer({ force: true });
-    emitGameUpdateToAll();
-    if (winnerPayload) {
-      io.emit('game_over', winnerPayload);
+    if (socket.id === activeBattle.attackerId) {
+      const capped = Math.max(1, Math.min(activeBattle.maxAttackerDice, requestedDice));
+      activeBattle.attackerDice = capped;
+      activeBattle.attackerRolled = true;
+    } else if (socket.id === activeBattle.defenderId && !activeBattle.defenderAuto) {
+      const capped = Math.max(1, Math.min(activeBattle.maxDefenderDice, requestedDice));
+      activeBattle.defenderDice = capped;
+      activeBattle.defenderRolled = true;
+    } else {
+      return;
     }
+    resetInactivityTimer();
+    emitCombatArenaUpdate();
+    maybeResolveActiveBattle('both_committed');
   });
 
   socket.on('return_to_lobby', () => {
-    pendingBattle = null;
+    clearActiveBattle();
     clearAllTimers();
     game.resetGame();
     io.emit('game_reset', 'Partida reiniciada al lobby');

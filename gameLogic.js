@@ -558,7 +558,7 @@ class RiskGame {
     return null;
   }
 
-  attack(playerId, fromId, toId, attackTroopCount) {
+  prepareAttack(playerId, fromId, toId) {
     if (this.winnerId) {
       return null;
     }
@@ -590,29 +590,42 @@ class RiskGame {
       return null;
     }
 
-    const requested = Number(attackTroopCount);
-    if (!Number.isFinite(requested) || requested < 1) {
-      return null;
-    }
+    const maxAttackerDice = Math.min(3, maxAttackable);
+    const maxDefenderDice = (to.troops || 0) >= 2 ? 2 : 1;
 
-    if (requested > maxAttackable) {
-      return null;
-    }
+    return {
+      attackerId: playerId,
+      defenderId: to.ownerId || null,
+      fromId,
+      toId,
+      maxAttackerDice,
+      maxDefenderDice,
+      fromTerritoryName: from.name || from.id,
+      toTerritoryName: to.name || to.id,
+    };
+  }
 
-    if (requested > 3) {
-      return null;
-    }
+  resolveAttack(playerId, fromId, toId, attackerDiceCount, defenderDiceCount) {
+    const prepared = this.prepareAttack(playerId, fromId, toId);
+    if (!prepared) return null;
+    const requestedAttackDice = Number(attackerDiceCount);
+    const requestedDefenseDice = Number(defenderDiceCount);
+    if (!Number.isFinite(requestedAttackDice) || requestedAttackDice < 1) return null;
+    if (!Number.isFinite(requestedDefenseDice) || requestedDefenseDice < 1) return null;
+    if (requestedAttackDice > prepared.maxAttackerDice) return null;
+    if (requestedDefenseDice > prepared.maxDefenderDice) return null;
 
-    const attackerDiceCount = requested;
-    const defenderDiceCount = (to.troops || 0) >= 2 ? 2 : 1;
+    const from = this.getTerritory(fromId);
+    const to = this.getTerritory(toId);
+    if (!from || !to) return null;
 
     const rollDice = (count) =>
       Array.from({ length: count }, () => Math.floor(Math.random() * 6) + 1).sort(
         (a, b) => b - a
       );
 
-    const attackerDice = rollDice(attackerDiceCount);
-    const defenderDice = rollDice(defenderDiceCount);
+    const attackerDice = rollDice(requestedAttackDice);
+    const defenderDice = rollDice(requestedDefenseDice);
 
     let attackerLosses = 0;
     let defenderLosses = 0;
@@ -638,7 +651,7 @@ class RiskGame {
       if (attackerPlayer) {
         attackerPlayer.conqueredThisTurn = true;
       }
-      const survivors = Math.max(0, requested - attackerLosses);
+      const survivors = Math.max(0, requestedAttackDice - attackerLosses);
       const moveCount = Math.max(1, survivors);
       from.troops -= moveCount;
       to.troops = moveCount;
@@ -652,9 +665,11 @@ class RiskGame {
     this.lastAttack = {
       id: this.lastAttackId,
       attackerId: playerId,
+      defenderId: prepared.defenderId,
       fromId,
       toId,
-      attackTroopCount: attackerDiceCount,
+      attackTroopCount: requestedAttackDice,
+      defendTroopCount: requestedDefenseDice,
       attackerDice,
       defenderDice,
       attackerLosses,
@@ -667,12 +682,25 @@ class RiskGame {
     return {
       attackerDice,
       defenderDice,
-      attackTroopCount: attackerDiceCount,
+      attackTroopCount: requestedAttackDice,
+      defendTroopCount: requestedDefenseDice,
       attackerLosses,
       defenderLosses,
       conquered,
       winnerId,
     };
+  }
+
+  attack(playerId, fromId, toId, attackTroopCount) {
+    const prepared = this.prepareAttack(playerId, fromId, toId);
+    if (!prepared) return null;
+    return this.resolveAttack(
+      playerId,
+      fromId,
+      toId,
+      attackTroopCount,
+      prepared.maxDefenderDice
+    );
   }
 
   isConnected(playerId, fromId, toId) {

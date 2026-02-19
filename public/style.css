@@ -760,6 +760,107 @@ textarea {
   gap: 16px;
 }
 
+.combat-arena-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1405;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(2, 7, 17, 0.6);
+  backdrop-filter: blur(7px);
+}
+
+.combat-arena-modal.active {
+  display: flex;
+}
+
+.combat-arena-panel {
+  width: min(640px, calc(100vw - 24px));
+  border-radius: 18px;
+  border: 1px solid rgba(145, 206, 255, 0.36);
+  background: linear-gradient(160deg, rgba(14, 24, 39, 0.72), rgba(8, 16, 31, 0.68));
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 24px 56px rgba(0, 0, 0, 0.52),
+    0 0 26px rgba(63, 214, 255, 0.2);
+  padding: 20px 18px 16px;
+  text-align: center;
+}
+
+.combat-arena-spectator {
+  display: none;
+  border-radius: 14px;
+  border: 1px solid rgba(138, 170, 219, 0.36);
+  background: linear-gradient(160deg, rgba(14, 22, 36, 0.86), rgba(8, 13, 25, 0.9));
+  box-shadow: 0 20px 44px rgba(0, 0, 0, 0.48);
+  padding: 14px 16px;
+  color: #d5e7ff;
+  font-size: 14px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.combat-arena-modal.spectator .combat-arena-panel {
+  display: none;
+}
+
+.combat-arena-modal.spectator .combat-arena-spectator {
+  display: block;
+}
+
+.combat-arena-title {
+  font-family: 'Roboto Mono', monospace;
+  font-size: 20px;
+  letter-spacing: 1.6px;
+  color: #e8f5ff;
+}
+
+.combat-arena-subtitle {
+  margin-top: 8px;
+  color: #c7ddfb;
+  font-size: 15px;
+}
+
+.combat-arena-dice-choices {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.combat-arena-dice-btn {
+  min-height: 38px;
+}
+
+.combat-arena-dice-btn.selected {
+  border-color: rgba(122, 238, 183, 0.72);
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.25);
+}
+
+.combat-arena-roll-btn {
+  margin-top: 14px;
+  width: 100%;
+  min-height: 48px;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  background: linear-gradient(160deg, #f43f5e, #be123c);
+  border: 1px solid rgba(255, 154, 171, 0.58);
+}
+
+.combat-arena-roll-btn:disabled {
+  opacity: 0.68;
+  cursor: not-allowed;
+}
+
+.combat-arena-status {
+  margin-top: 10px;
+  min-height: 22px;
+  color: #bee4ff;
+  font-size: 14px;
+}
+
 .action-modal-backdrop {
   position: fixed;
   inset: 0;
@@ -1257,6 +1358,30 @@ textarea {
 
 .floating-text.gain {
   color: #3ce49a;
+}
+
+.troop-route-orb {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 14px currentColor, 0 0 24px currentColor;
+  opacity: 0.98;
+}
+
+.troop-route-orb.troop-route-self {
+  color: #42e8ff;
+  background: radial-gradient(circle at 35% 35%, #b2f8ff 0%, #22d3ee 45%, #155e75 100%);
+}
+
+.troop-route-orb.troop-route-enemy {
+  color: #ff646e;
+  background: radial-gradient(circle at 35% 35%, #ffd0d5 0%, #f43f5e 45%, #7f1d1d 100%);
+}
+
+.troop-route-orb.troop-route-neutral {
+  color: #ffd85a;
+  background: radial-gradient(circle at 35% 35%, #fff4c2 0%, #facc15 45%, #854d0e 100%);
 }
 
 @keyframes floatUp {

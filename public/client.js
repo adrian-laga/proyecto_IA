@@ -42,6 +42,14 @@ const battleOverlayEl = document.getElementById('battle-overlay');
 const battleTitleEl = document.getElementById('battle-title');
 const battleOverlayStateEl = document.getElementById('battle-overlay-state');
 const battleDiceContainerEl = document.getElementById('battle-dice-container');
+const combatArenaModalEl = document.getElementById('combat-arena-modal');
+const combatArenaPanelEl = document.getElementById('combat-arena-panel');
+const combatArenaTitleEl = document.getElementById('combat-arena-title');
+const combatArenaSubtitleEl = document.getElementById('combat-arena-subtitle');
+const combatArenaDiceChoicesEl = document.getElementById('combat-arena-dice-choices');
+const combatArenaRollBtnEl = document.getElementById('combat-arena-roll-btn');
+const combatArenaStatusEl = document.getElementById('combat-arena-status');
+const combatArenaSpectatorEl = document.getElementById('combat-arena-spectator');
 const actionModalBackdropEl = document.getElementById('action-modal-backdrop');
 const actionModalPanelEl = document.getElementById('action-modal-panel');
 const actionModalCloseEl = document.getElementById('action-modal-close');
@@ -171,6 +179,12 @@ let cardRevealQueue = [];
 let cardRevealActive = false;
 let mapPanZoomInstance = null;
 let territoryTooltipVisible = false;
+let troopRouteTimerId = null;
+let troopRouteSequence = 0;
+const TROOP_ROUTE_DURATION_MS = 560;
+let combatArenaContext = null;
+let combatArenaSelectedDice = 1;
+let combatArenaCommitted = false;
 
 const SoundManager = {
   ctx: null,
@@ -183,7 +197,7 @@ const SoundManager = {
     if (!AudioCtx) return null;
     this.ctx = new AudioCtx();
     this.masterGain = this.ctx.createGain();
-    this.masterGain.gain.value = 0.12;
+    this.masterGain.gain.value = 1.0;
     this.masterGain.connect(this.ctx.destination);
     return this.ctx;
   },
@@ -344,6 +358,13 @@ const showToast = (message, type = 'info') => {
     }, 280);
   }, 3000);
 };
+
+const enforceHtmlAudioVolumeMax = () => {
+  document.querySelectorAll('audio').forEach((audioEl) => {
+    audioEl.volume = 1.0;
+  });
+};
+enforceHtmlAudioVolumeMax();
 
 const sanitizeNickname = (name) => {
   const safe = String(name || '')
@@ -695,6 +716,176 @@ const showFloatingText = (territoryId, amount, type = 'gain') => {
   };
   textEl.addEventListener('animationend', remove, { once: true });
   window.setTimeout(remove, 2000);
+};
+
+const playMoveSound = () => {
+  SoundManager.unlock();
+  const ctx = SoundManager.ensureContext();
+  if (!ctx || !SoundManager.masterGain) return;
+  const now = ctx.currentTime;
+  const oscillator = ctx.createOscillator();
+  const gainNode = ctx.createGain();
+  const filterNode = ctx.createBiquadFilter();
+
+  oscillator.type = 'triangle';
+  oscillator.frequency.setValueAtTime(1200, now);
+  oscillator.frequency.exponentialRampToValueAtTime(180, now + 0.24);
+  filterNode.type = 'bandpass';
+  filterNode.frequency.setValueAtTime(1500, now);
+  filterNode.frequency.exponentialRampToValueAtTime(300, now + 0.22);
+  gainNode.gain.setValueAtTime(0.0001, now);
+  gainNode.gain.exponentialRampToValueAtTime(0.55, now + 0.02);
+  gainNode.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
+
+  oscillator.connect(filterNode);
+  filterNode.connect(gainNode);
+  gainNode.connect(SoundManager.masterGain);
+  oscillator.start(now);
+  oscillator.stop(now + 0.3);
+};
+
+const getTerritoryCenter = (territoryId) => {
+  const territoryEl = document.getElementById(territoryId);
+  if (!territoryEl || typeof territoryEl.getBoundingClientRect !== 'function') return null;
+  const rect = territoryEl.getBoundingClientRect();
+  return {
+    x: rect.left + rect.width / 2,
+    y: rect.top + rect.height / 2,
+  };
+};
+
+const getRouteColorClass = (ownerId) => {
+  if (!ownerId || ownerId === neutralOwnerId) return 'troop-route-neutral';
+  if (ownerId === socket.id) return 'troop-route-self';
+  return 'troop-route-enemy';
+};
+
+const animateTroopMovement = (sourceId, targetId, colorClass = 'troop-route-neutral') =>
+  new Promise((resolve) => {
+    const source = getTerritoryCenter(sourceId);
+    const target = getTerritoryCenter(targetId);
+    if (!source || !target) {
+      resolve(false);
+      return;
+    }
+
+    const orb = document.createElement('div');
+    orb.className = `troop-route-orb ${colorClass}`;
+    orb.style.position = 'fixed';
+    orb.style.left = `${source.x}px`;
+    orb.style.top = `${source.y}px`;
+    orb.style.transform = 'translate(-50%, -50%)';
+    orb.style.pointerEvents = 'none';
+    orb.style.zIndex = '9998';
+    document.body.appendChild(orb);
+
+    playMoveSound();
+    const animation = orb.animate(
+      [
+        { left: `${source.x}px`, top: `${source.y}px`, transform: 'translate(-50%, -50%) scale(0.9)' },
+        {
+          left: `${(source.x + target.x) / 2}px`,
+          top: `${(source.y + target.y) / 2 - 50}px`,
+          transform: 'translate(-50%, -50%) scale(1.08)',
+          offset: 0.5,
+        },
+        { left: `${target.x}px`, top: `${target.y}px`, transform: 'translate(-50%, -50%) scale(0.95)' },
+      ],
+      {
+        duration: TROOP_ROUTE_DURATION_MS,
+        easing: 'cubic-bezier(0.2, 0.75, 0.25, 1)',
+        fill: 'forwards',
+      }
+    );
+
+    let cleaned = false;
+    const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
+      if (orb.parentNode) orb.parentNode.removeChild(orb);
+      resolve(true);
+    };
+    animation.onfinish = cleanup;
+    animation.oncancel = cleanup;
+    window.setTimeout(cleanup, TROOP_ROUTE_DURATION_MS + 120);
+  });
+
+const detectTroopRoute = (previousMap, nextMap) => {
+  if (!Array.isArray(previousMap) || !Array.isArray(nextMap) || !previousMap.length) return null;
+  const previousById = new Map(previousMap.map((territory) => [territory.id, territory]));
+  const deltas = [];
+  nextMap.forEach((territory) => {
+    const previous = previousById.get(territory.id);
+    if (!previous) return;
+    const delta = (Number(territory.troops) || 0) - (Number(previous.troops) || 0);
+    if (delta !== 0 || previous.ownerId !== territory.ownerId) {
+      deltas.push({
+        id: territory.id,
+        delta,
+        prevOwnerId: previous.ownerId || null,
+        nextOwnerId: territory.ownerId || null,
+      });
+    }
+  });
+  if (!deltas.length) return null;
+
+  const negative = deltas
+    .filter((item) => item.delta < 0)
+    .sort((a, b) => a.delta - b.delta);
+  if (!negative.length) return null;
+  const source = negative[0];
+
+  let target = deltas
+    .filter(
+      (item) =>
+        item.id !== source.id &&
+        item.nextOwnerId &&
+        item.nextOwnerId === source.nextOwnerId &&
+        (item.delta > 0 || item.prevOwnerId !== item.nextOwnerId)
+    )
+    .sort((a, b) => b.delta - a.delta)[0];
+
+  if (!target) {
+    target = deltas
+      .filter((item) => item.id !== source.id && item.delta > 0)
+      .sort((a, b) => b.delta - a.delta)[0];
+  }
+  if (!target) return null;
+
+  return {
+    sourceId: source.id,
+    targetId: target.id,
+    ownerId: target.nextOwnerId || source.nextOwnerId || null,
+  };
+};
+
+const applyMapUpdateWithOptionalRoute = (previousMap, nextMap, troopDeltaEvents) => {
+  const route = detectTroopRoute(previousMap, nextMap);
+  const render = () => {
+    mapData = nextMap;
+    drawMap();
+    showTroopDeltaEvents(troopDeltaEvents);
+  };
+
+  if (!route) {
+    render();
+    return;
+  }
+
+  troopRouteSequence += 1;
+  const seq = troopRouteSequence;
+  if (troopRouteTimerId) {
+    window.clearTimeout(troopRouteTimerId);
+    troopRouteTimerId = null;
+  }
+
+  animateTroopMovement(route.sourceId, route.targetId, getRouteColorClass(route.ownerId)).then(() => {
+    troopRouteTimerId = window.setTimeout(() => {
+      if (seq !== troopRouteSequence) return;
+      render();
+      troopRouteTimerId = null;
+    }, 0);
+  });
 };
 
 const getTroopDeltaEvents = (previousMap, nextMap) => {
@@ -1131,57 +1322,119 @@ const syncPlayerTroopCountsFromMap = () => {
   });
 };
 
-const setBattleOverlayState = ({ title = 'Battle', message = '', showRollButton = false } = {}) => {
+const setBattleOverlayState = ({ title = 'Battle', message = '' } = {}) => {
   if (!battleOverlayEl || !battleOverlayStateEl || !battleTitleEl) return;
   battleTitleEl.textContent = title;
   battleOverlayStateEl.innerHTML = '';
-  if (showRollButton) {
-    const rollButton = document.createElement('button');
-    rollButton.textContent = rollRequested ? 'Lanzando...' : 'Lanzar Dados';
-    rollButton.disabled = rollRequested;
-    rollButton.onclick = () => {
-      if (!battleContext || rollRequested) return;
-      rollRequested = true;
-      setBattleOverlayState({
-        title: 'Battle',
-        message: 'Esperando sincronizacion...',
-      });
-      socket.emit('trigger_roll', { battleId: battleContext.battleId });
-    };
-    battleOverlayStateEl.appendChild(rollButton);
-    return;
-  }
   battleOverlayStateEl.textContent = message;
 };
 
-const openBattleReadyOverlay = (payload) => {
-  if (!battleOverlayEl || !battleDiceContainerEl) return;
+const closeCombatArenaModal = () => {
+  if (!combatArenaModalEl) return;
+  combatArenaModalEl.classList.remove('active');
+  combatArenaModalEl.classList.remove('spectator');
+  combatArenaModalEl.setAttribute('aria-hidden', 'true');
+  combatArenaContext = null;
+  combatArenaCommitted = false;
+  combatArenaSelectedDice = 1;
+  battlePending = false;
+};
+
+const renderCombatArenaChoices = (maxDice) => {
+  if (!combatArenaDiceChoicesEl) return;
+  combatArenaDiceChoicesEl.innerHTML = '';
+  for (let value = 1; value <= Math.max(1, maxDice); value += 1) {
+    const btn = document.createElement('button');
+    btn.className = `btn btn-secondary combat-arena-dice-btn${value === combatArenaSelectedDice ? ' selected' : ''}`;
+    btn.type = 'button';
+    btn.textContent = `${value} ${value === 1 ? 'dado' : 'dados'}`;
+    btn.onclick = () => {
+      if (combatArenaCommitted) return;
+      combatArenaSelectedDice = value;
+      renderCombatArenaChoices(maxDice);
+    };
+    combatArenaDiceChoicesEl.appendChild(btn);
+  }
+};
+
+const updateCombatArenaStatus = (payload = {}) => {
+  if (!combatArenaContext) return;
+  const attackerReady = Boolean(payload.attackerRolled);
+  const defenderReady = Boolean(payload.defenderRolled);
+  const iAmAttacker = combatArenaContext.attackerId === socket.id;
+  const myReady = iAmAttacker ? attackerReady : defenderReady;
+  const enemyReady = iAmAttacker ? defenderReady : attackerReady;
+  if (combatArenaStatusEl) {
+    if (myReady && enemyReady) {
+      combatArenaStatusEl.textContent = 'Resolviendo combate...';
+    } else if (myReady) {
+      combatArenaStatusEl.textContent = 'Esperando al oponente...';
+    } else {
+      combatArenaStatusEl.textContent = 'Selecciona dados y confirma tu tirada.';
+    }
+  }
+  if (combatArenaRollBtnEl) {
+    combatArenaRollBtnEl.disabled = myReady || combatArenaCommitted;
+    combatArenaRollBtnEl.textContent = myReady || combatArenaCommitted ? 'ESPERANDO AL OPONENTE...' : 'TIRAR DADOS';
+  }
+  if (!myReady && enemyReady && combatArenaStatusEl) {
+    combatArenaStatusEl.textContent = 'El oponente ya tiro. Te toca.';
+  }
+};
+
+const openCombatArenaModal = (payload = {}) => {
+  if (!combatArenaModalEl) return;
   battlePending = true;
   rollRequested = false;
   battleContext = payload || null;
-  battleDiceContainerEl.innerHTML = '';
-  battleOverlayEl.classList.add('active');
+  combatArenaContext = payload || null;
+  combatArenaCommitted = false;
+  combatArenaModalEl.classList.add('active');
+  combatArenaModalEl.setAttribute('aria-hidden', 'false');
 
-  const isAttacker = payload && payload.attackerId === socket.id;
-  const isDefender = payload && payload.defenderId === socket.id;
-  if (isAttacker) {
-    setBattleOverlayState({
-      title: 'Battle Ready',
-      showRollButton: true,
-    });
+  const isAttacker = payload.attackerId === socket.id;
+  const isDefender = payload.defenderId === socket.id && !payload.defenderAuto;
+  if (!isAttacker && !isDefender) {
+    combatArenaModalEl.classList.add('spectator');
+    if (combatArenaSpectatorEl) {
+      const attackerName = payload.attackerName || formatPlayerLabel(payload.attackerId);
+      const defenderName = payload.defenderName || formatPlayerLabel(payload.defenderId);
+      combatArenaSpectatorEl.textContent = `Batalla en curso: ${attackerName} vs ${defenderName}`;
+    }
     return;
   }
-  if (isDefender) {
-    setBattleOverlayState({
-      title: 'Battle Ready',
-      message: 'Esperando al atacante...',
-    });
-    return;
+
+  combatArenaModalEl.classList.remove('spectator');
+  const maxDice = isAttacker ? Number(payload.maxAttackerDice) || 1 : Number(payload.maxDefenderDice) || 1;
+  combatArenaSelectedDice = maxDice;
+  const roleTitle = isAttacker ? `ATACANDO A ${payload.toName || payload.toId}` : `DEFENDIENDO ${payload.toName || payload.toId}`;
+  if (combatArenaTitleEl) combatArenaTitleEl.textContent = roleTitle;
+  if (combatArenaSubtitleEl) {
+    combatArenaSubtitleEl.textContent = isAttacker
+      ? `Desde ${payload.fromName || payload.fromId} | Elige 1-${maxDice} dados`
+      : `Elige 1-${maxDice} dados para defender`;
   }
-  setBattleOverlayState({
-    title: 'Battle Ready',
-    message: 'Combate en preparacion...',
-  });
+  renderCombatArenaChoices(maxDice);
+
+  if (combatArenaRollBtnEl) {
+    combatArenaRollBtnEl.disabled = false;
+    combatArenaRollBtnEl.textContent = 'TIRAR DADOS';
+    combatArenaRollBtnEl.onclick = () => {
+      if (!combatArenaContext || combatArenaCommitted) return;
+      combatArenaCommitted = true;
+      combatArenaRollBtnEl.disabled = true;
+      combatArenaRollBtnEl.textContent = 'ESPERANDO AL OPONENTE...';
+      if (combatArenaStatusEl) combatArenaStatusEl.textContent = 'Esperando al oponente...';
+      socket.emit('commit_roll', {
+        battleId: combatArenaContext.battleId,
+        dice: combatArenaSelectedDice,
+      });
+    };
+  }
+  if (combatArenaStatusEl) {
+    combatArenaStatusEl.textContent = 'Selecciona dados y confirma tu tirada.';
+  }
+  updateCombatArenaStatus(payload);
 };
 
 const animateBattle = (attackerRolls, defenderRolls, onComplete) => {
@@ -1400,32 +1653,27 @@ const renderActionModal = (data) => {
     stat.textContent = `AVAILABLE TROOPS: ${sourceTroops} | MAX DICE: ${maxDice}`;
     actionModalBodyEl.appendChild(stat);
 
-    const diceRow = document.createElement('div');
-    diceRow.className = 'dice-choices';
-    const makeDiceBtn = (count) => {
-      const btn = document.createElement('button');
-      btn.className = 'btn btn-attack';
-      btn.textContent = `${count} ${count === 1 ? 'Dado' : 'Dados'}`;
-      btn.disabled = count > maxDice;
-      btn.onclick = () => {
-        if (btn.disabled) return;
-        socket.emit('attack', { fromId: selectedSourceId, toId: selectedTargetId, dice: count });
-        selectedTargetId = null;
-        hideActionModal();
-        drawMap();
-        updateSidebar({
-          players,
-          phase,
-          currentPlayerId,
-          map: mapData,
-        });
-      };
-      return btn;
+    const hint = document.createElement('div');
+    hint.className = 'action-modal-stat';
+    hint.textContent = 'El numero de dados se decide dentro de la Arena de Combate.';
+    actionModalBodyEl.appendChild(hint);
+
+    const confirmBtn = document.createElement('button');
+    confirmBtn.className = 'btn btn-attack';
+    confirmBtn.textContent = 'ABRIR ARENA DE COMBATE';
+    confirmBtn.onclick = () => {
+      socket.emit('initiate_attack', { fromId: selectedSourceId, toId: selectedTargetId });
+      selectedTargetId = null;
+      hideActionModal();
+      drawMap();
+      updateSidebar({
+        players,
+        phase,
+        currentPlayerId,
+        map: mapData,
+      });
     };
-    diceRow.appendChild(makeDiceBtn(1));
-    diceRow.appendChild(makeDiceBtn(2));
-    diceRow.appendChild(makeDiceBtn(3));
-    actionModalBodyEl.appendChild(diceRow);
+    actionModalFooterEl.appendChild(confirmBtn);
 
     const cancelBtn = document.createElement('button');
     cancelBtn.className = 'btn btn-secondary';
@@ -2045,6 +2293,7 @@ socket.on('game_reset', (message) => {
   hideVictoryOverlay();
   hideActionModal();
   closeCardOverlay();
+  closeCombatArenaModal();
   closeRules();
   if (cardRevealOverlayEl) {
     cardRevealOverlayEl.classList.remove('active');
@@ -2075,6 +2324,7 @@ socket.on('battle_cancelled', () => {
   battleAnimationInProgress = false;
   battleContext = null;
   rollRequested = false;
+  closeCombatArenaModal();
   SoundManager.stopDiceRoll();
   if (battleTimeoutId) {
     window.clearTimeout(battleTimeoutId);
@@ -2097,9 +2347,9 @@ socket.on('battle_cancelled', () => {
   showToast('Batalla cancelada.', 'info');
 });
 
-socket.on('battle_ready', (payload) => {
+socket.on('combat_arena_opened', (payload = {}) => {
   hideActionModal();
-  openBattleReadyOverlay(payload);
+  openCombatArenaModal(payload);
   updateSidebar({
     players,
     phase,
@@ -2108,7 +2358,12 @@ socket.on('battle_ready', (payload) => {
   });
 });
 
-socket.on('battle_anim', (payload) => {
+socket.on('combat_arena_update', (payload = {}) => {
+  updateCombatArenaStatus(payload);
+});
+
+const handleBattleResult = (payload) => {
+  closeCombatArenaModal();
   if (payload && payload.battleId) {
     lastAttackLogId = payload.battleId;
   }
@@ -2117,37 +2372,106 @@ socket.on('battle_anim', (payload) => {
   const attackerDice = payload && Array.isArray(payload.attackerDice) ? payload.attackerDice : [];
   const defenderDice = payload && Array.isArray(payload.defenderDice) ? payload.defenderDice : [];
   const newMapState = payload && Array.isArray(payload.newMapState) ? payload.newMapState : null;
+  const attackerLosses = Number(payload && payload.attackerLosses) || 0;
+  const defenderLosses = Number(payload && payload.defenderLosses) || 0;
+  const conquered = Boolean(payload && payload.conquered);
+
+  let postBattleToast = null;
+  const isLocalAttacker = Boolean(payload && payload.attackerId === socket.id);
+  const isLocalDefender = Boolean(payload && payload.defenderId === socket.id);
+  if (isLocalAttacker) {
+    if (conquered) {
+      postBattleToast = {
+        message: `Conquista lograda. Bajas A:${attackerLosses} / D:${defenderLosses}.`,
+        type: 'success',
+      };
+    } else if (attackerLosses > defenderLosses) {
+      postBattleToast = {
+        message: `Asalto repelido. Bajas A:${attackerLosses} / D:${defenderLosses}.`,
+        type: 'error',
+      };
+    } else if (attackerLosses === defenderLosses) {
+      postBattleToast = {
+        message: `Intercambio parejo. Bajas A:${attackerLosses} / D:${defenderLosses}.`,
+        type: 'info',
+      };
+    } else {
+      postBattleToast = {
+        message: `Avance favorable. Bajas A:${attackerLosses} / D:${defenderLosses}.`,
+        type: 'success',
+      };
+    }
+  } else if (isLocalDefender) {
+    if (conquered) {
+      postBattleToast = {
+        message: `Linea rota. Bajas A:${attackerLosses} / D:${defenderLosses}.`,
+        type: 'error',
+      };
+    } else if (defenderLosses > attackerLosses) {
+      postBattleToast = {
+        message: `Defensa costosa. Bajas A:${attackerLosses} / D:${defenderLosses}.`,
+        type: 'info',
+      };
+    } else if (defenderLosses === attackerLosses) {
+      postBattleToast = {
+        message: `Defensa equilibrada. Bajas A:${attackerLosses} / D:${defenderLosses}.`,
+        type: 'success',
+      };
+    } else {
+      postBattleToast = {
+        message: `Bien defendido. Bajas A:${attackerLosses} / D:${defenderLosses}.`,
+        type: 'success',
+      };
+    }
+  }
 
   animateBattle(attackerDice, defenderDice, () => {
     selectedSourceId = null;
     selectedTargetId = null;
     selectedTerritoryId = null;
-    drawMap(newMapState);
-    flushPendingFloatingEvents();
-    syncPlayerTroopCountsFromMap();
-    updateSidebar({
-      players,
-      phase,
-      currentPlayerId,
-      map: mapData,
-    });
-    if (queuedGameOverPayload) {
-      showVictoryOverlay(queuedGameOverPayload.winnerId, queuedGameOverPayload.winnerName);
-      queuedGameOverPayload = null;
+    const completeBattleRender = () => {
+      drawMap(newMapState);
+      flushPendingFloatingEvents();
+      syncPlayerTroopCountsFromMap();
+      updateSidebar({
+        players,
+        phase,
+        currentPlayerId,
+        map: mapData,
+      });
+      if (queuedGameOverPayload) {
+        showVictoryOverlay(queuedGameOverPayload.winnerId, queuedGameOverPayload.winnerName);
+        queuedGameOverPayload = null;
+      }
+      if (postBattleToast) {
+        showToast(postBattleToast.message, postBattleToast.type);
+      }
+    };
+
+    const routeSourceId = payload && payload.fromId ? payload.fromId : null;
+    const routeTargetId = payload && payload.toId ? payload.toId : null;
+    const wasConquered = Boolean(payload && payload.conquered);
+    if (wasConquered && routeSourceId && routeTargetId && Array.isArray(newMapState)) {
+      const targetState = newMapState.find((territory) => territory.id === routeTargetId);
+      const colorClass = getRouteColorClass(targetState ? targetState.ownerId : null);
+      animateTroopMovement(routeSourceId, routeTargetId, colorClass).then(completeBattleRender);
+    } else {
+      completeBattleRender();
     }
   });
 
   const attackTroopCount = payload ? payload.attackTroopCount : 0;
-  const attackerLosses = payload ? payload.attackerLosses : 0;
-  const defenderLosses = payload ? payload.defenderLosses : 0;
-  const conquered = payload ? payload.conquered : false;
   const attackerName = payload ? formatPlayerLabel(payload.attackerId) : 'Attacker';
   const defenderName = payload ? formatPlayerLabel(payload.defenderId) : 'Defender';
   const resultText = conquered ? 'Conquered!' : 'Battle resolved.';
+
   appendLog(
     `${attackerName} (${attackTroopCount}) rolled: ${attackerDice.join(', ')} | ${defenderName} rolled: ${defenderDice.join(', ')} | Losses A:${attackerLosses} D:${defenderLosses} | ${resultText}`
   );
-});
+};
+
+socket.on('battle_result', handleBattleResult);
+socket.on('battle_anim', handleBattleResult);
 
 socket.on('turn_skipped', ({ playerId } = {}) => {
   const label = formatPlayerLabel(playerId);
@@ -2164,8 +2488,9 @@ socket.on('game_over', ({ winnerId, winnerName } = {}) => {
 });
 
 socket.on('game_update', (data) => {
+  const hadInitialState = hasReceivedInitialState;
   const previousMap = Array.isArray(mapData) ? mapData : [];
-  mapData = data.map || mapData;
+  const incomingMap = Array.isArray(data.map) ? data.map : mapData;
   players = data.players || players;
   phase = data.phase || phase;
   currentPlayerId = data.currentPlayerId || currentPlayerId;
@@ -2174,7 +2499,7 @@ socket.on('game_update', (data) => {
   globalTradeInCount = Number(data.globalTradeInCount) || globalTradeInCount;
   turnTimerEndMs = Number(data.turnTimerEndsAt) || null;
   turnTimerDurationMs = Number(data.turnTimerDurationMs) || 0;
-  const troopDeltaEvents = hasReceivedInitialState ? getTroopDeltaEvents(previousMap, mapData) : [];
+  const troopDeltaEvents = hadInitialState ? getTroopDeltaEvents(previousMap, incomingMap) : [];
   hasReceivedInitialState = true;
 
   if (!hasJoinedGame) {
@@ -2209,10 +2534,18 @@ socket.on('game_update', (data) => {
   }
 
   if (!battleAnimationInProgress) {
-    drawMap();
-    showTroopDeltaEvents(troopDeltaEvents);
+    if (hadInitialState) {
+      applyMapUpdateWithOptionalRoute(previousMap, incomingMap, troopDeltaEvents);
+    } else {
+      mapData = incomingMap;
+      drawMap();
+      showTroopDeltaEvents(troopDeltaEvents);
+    }
   } else if (troopDeltaEvents.length) {
+    mapData = incomingMap;
     pendingFloatingEvents.push(...troopDeltaEvents);
+  } else {
+    mapData = incomingMap;
   }
 
   if (data.winnerId && !battleAnimationInProgress) {
